@@ -1,0 +1,677 @@
+/* ── Legendary Lots — fantasy auction house ─────────────────────────────── */
+
+:root {
+  --bg: #140c07;
+  --wood-900: #1d1008;
+  --wood-800: #241409;
+  --wood-700: #2e1a0c;
+  --wood-line: #55341a;
+  --gold: #e0a82e;
+  --gold-hi: #ffe58a;
+  --gold-lo: #b9862b;
+  --ink: #2a1206;
+  --felt: #1b57a6;
+  --text: #f2e4c4;
+  --text-dim: #b39a72;
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: 'Alegreya Sans', sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 700px at 50% -10%, rgba(224, 168, 46, 0.07), transparent 60%),
+    repeating-linear-gradient(
+      93deg,
+      rgba(0, 0, 0, 0.16) 0px,
+      transparent 3px,
+      rgba(255, 200, 120, 0.022) 6px,
+      transparent 11px,
+      rgba(0, 0, 0, 0.13) 17px
+    ),
+    radial-gradient(140% 110% at 50% 110%, #0d0603 20%, transparent 70%), var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Top bar ── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--wood-line);
+  background: linear-gradient(180deg, rgba(60, 34, 14, 0.55), rgba(29, 16, 8, 0.35));
+  box-shadow: 0 1px 0 rgba(255, 220, 150, 0.06) inset;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brand-logo {
+  width: 52px;
+  height: 52px;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
+}
+
+.brand-text h1 {
+  font-family: 'Forum', serif;
+  font-size: 26px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+  background: linear-gradient(180deg, var(--gold-hi) 20%, var(--gold) 55%, var(--gold-lo));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.tagline {
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Buttons ── */
+
+.btn {
+  font-family: 'Forum', serif;
+  font-size: 17px;
+  letter-spacing: 0.05em;
+  padding: 9px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--wood-line);
+  background: linear-gradient(180deg, var(--wood-700), var(--wood-900));
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    filter 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.btn:hover {
+  filter: brightness(1.15);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+
+.btn.gold {
+  background: linear-gradient(180deg, #f7ce58, #c8912b);
+  border-color: #8a5e1b;
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow:
+    0 1px 0 rgba(255, 240, 180, 0.7) inset,
+    0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: var(--wood-line);
+  color: var(--text-dim);
+}
+
+.btn.ghost:hover {
+  color: var(--text);
+  border-color: var(--gold-lo);
+}
+
+.btn.small {
+  font-size: 14px;
+  padding: 6px 14px;
+}
+
+.btn.icon {
+  padding: 8px 12px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* ── Save pill ── */
+
+.save-pill {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 14px;
+  border: 1px dashed var(--gold-lo);
+  border-radius: 10px;
+  background: rgba(27, 87, 166, 0.14);
+  cursor: pointer;
+}
+
+.save-pill-code {
+  font-family: 'Forum', serif;
+  font-size: 18px;
+  letter-spacing: 0.22em;
+  color: var(--gold-hi);
+}
+
+.save-pill-hint {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.save-pill:hover .save-pill-hint {
+  color: var(--gold);
+}
+
+/* ── Layout ── */
+
+.layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.panel {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 18px 0 18px 18px;
+  padding: 16px;
+  border: 1px solid var(--wood-line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--wood-800), var(--wood-900));
+  box-shadow:
+    0 1px 0 rgba(255, 220, 150, 0.07) inset,
+    0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--wood-line);
+}
+
+.tab {
+  font-family: 'Forum', serif;
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  padding: 8px 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.tab.active {
+  background: linear-gradient(180deg, #f7ce58, #c8912b);
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: 0 1px 0 rgba(255, 240, 180, 0.6) inset;
+}
+
+.pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+#text-input {
+  flex: 1;
+  min-height: 200px;
+  resize: none;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--wood-line);
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--text);
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+#text-input:focus {
+  outline: none;
+  border-color: var(--gold-lo);
+  box-shadow: 0 0 0 3px rgba(224, 168, 46, 0.12);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* ── Image pane ── */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 16px;
+  text-align: center;
+  font-size: 15px;
+  color: var(--text-dim);
+  border: 2px dashed var(--gold-lo);
+  border-radius: 10px;
+  background: rgba(27, 87, 166, 0.08);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.dropzone:hover,
+.dropzone.drag {
+  background: rgba(27, 87, 166, 0.22);
+  border-color: var(--gold);
+  color: var(--text);
+}
+
+.dropzone-icon {
+  font-size: 28px;
+}
+
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--wood-line);
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.thumb button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(20, 8, 3, 0.82);
+  color: var(--gold-hi);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.thumb:hover button {
+  opacity: 1;
+}
+
+.pane-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Panel footer ── */
+
+.panel-foot {
+  border-top: 1px solid var(--wood-line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.foot-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+
+.code-row {
+  display: flex;
+  gap: 8px;
+}
+
+#code-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--wood-line);
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--gold-hi);
+  font-family: 'Forum', serif;
+  font-size: 17px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+#code-input:focus {
+  outline: none;
+  border-color: var(--gold-lo);
+}
+
+/* ── Arena ── */
+
+.arena {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 18px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.wheel-wrap {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#wheel {
+  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.55));
+  cursor: pointer;
+}
+
+.spin-btn {
+  font-size: 28px;
+  padding: 14px 64px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #f7ce58, #c8912b);
+  border: 1px solid #8a5e1b;
+  color: var(--ink);
+  font-weight: 700;
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 rgba(255, 240, 180, 0.7) inset,
+    0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+.spin-btn:not(:disabled):hover {
+  filter: brightness(1.08);
+  box-shadow:
+    0 1px 0 rgba(255, 240, 180, 0.7) inset,
+    0 6px 22px rgba(224, 168, 46, 0.35);
+}
+
+/* ── Panel toggle (tablet) ── */
+
+.panel-toggle {
+  display: none;
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 80;
+  transition: left 0.28s cubic-bezier(0.3, 1, 0.4, 1);
+}
+
+/* Drawer open → the toggle rides along its right edge, still tappable. */
+body:has(.panel.open) .panel-toggle {
+  left: calc(min(400px, 88vw) + 14px);
+}
+
+/* ── Preview overlay ── */
+
+.preview {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--gold-lo);
+  background: rgba(20, 10, 4, 0.92);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.65);
+  max-width: min(48vmin, 520px);
+}
+
+.preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 48vmin;
+  border-radius: 8px;
+}
+
+.preview-label {
+  padding-top: 6px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.preview-label:empty {
+  display: none;
+}
+
+/* ── Winner modal ── */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 4, 2, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(520px, calc(100vw - 48px));
+  padding: 30px 28px 24px;
+  border-radius: 18px;
+  border: 1px solid var(--gold-lo);
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(224, 168, 46, 0.12), transparent 55%),
+    linear-gradient(180deg, var(--wood-700), var(--wood-900));
+  box-shadow:
+    0 1px 0 rgba(255, 220, 150, 0.1) inset,
+    0 30px 80px rgba(0, 0, 0, 0.7);
+  animation: card-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+@keyframes card-in {
+  from {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+}
+
+.modal-gavel {
+  width: 84px;
+  height: 84px;
+  margin-top: -72px;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.6));
+  animation: gavel-slam 0.55s cubic-bezier(0.3, 1.6, 0.4, 1);
+}
+
+@keyframes gavel-slam {
+  0% {
+    transform: translateY(-60px) scale(1.4) rotate(-18deg);
+    opacity: 0;
+  }
+  55% {
+    transform: translateY(4px) scale(1.02) rotate(3deg);
+    opacity: 1;
+  }
+}
+
+.modal-eyebrow {
+  font-family: 'Forum', serif;
+  font-size: 30px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, var(--gold-hi) 20%, var(--gold) 55%, var(--gold-lo));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.winner-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.winner-content img {
+  max-width: 100%;
+  max-height: 46vh;
+  border-radius: 12px;
+  border: 1px solid var(--wood-line);
+}
+
+.winner-text {
+  font-family: 'Forum', serif;
+  font-size: 34px;
+  text-align: center;
+  line-height: 1.25;
+  padding: 12px 6px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* ── Confetti + toast ── */
+
+.confetti-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  pointer-events: none;
+  width: 100vw;
+  height: 100vh;
+}
+
+.toast {
+  position: fixed;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 140;
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: 1px solid var(--gold-lo);
+  background: rgba(20, 10, 4, 0.94);
+  color: var(--text);
+  font-size: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.25s ease;
+}
+
+@keyframes toast-in {
+  from {
+    transform: translate(-50%, 12px);
+    opacity: 0;
+  }
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ── Tablet (portrait & narrow landscape) ── */
+
+@media (max-width: 1100px) {
+  .panel {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 70;
+    width: min(400px, 88vw);
+    margin: 0;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    transform: translateX(-104%);
+    transition: transform 0.28s cubic-bezier(0.3, 1, 0.4, 1);
+    box-shadow: 24px 0 60px rgba(0, 0, 0, 0.55);
+  }
+
+  .panel.open {
+    transform: translateX(0);
+  }
+
+  .panel-toggle {
+    display: block;
+  }
+
+  .brand-text h1 {
+    font-size: 21px;
+  }
+
+  .spin-btn {
+    font-size: 32px;
+    padding: 18px 72px;
+  }
+}

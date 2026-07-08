@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <title>Legendary Lots — Колесо розіграшів</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="/logo.png" alt="Legendary Lots" />
+        <div class="brand-text">
+          <h1>Legendary Lots</h1>
+          <span class="tagline">Колесо розіграшів</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="btn-sound" class="btn icon" title="Звук" aria-label="Звук">🔊</button>
+        <div id="save-pill" class="save-pill hidden" title="Натисни — скопіює посилання">
+          <span class="save-pill-code"></span>
+          <span class="save-pill-hint">копіювати</span>
+        </div>
+        <button id="btn-save" class="btn gold">Зберегти</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel" id="panel">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-mode="text" role="tab">Текст</button>
+          <button class="tab" data-mode="image" role="tab">Зображення</button>
+        </div>
+
+        <section id="pane-text" class="pane">
+          <textarea
+            id="text-input"
+            placeholder="Один рядок — один сектор&#10;&#10;Наприклад:&#10;Скін AK-47&#10;500 голди&#10;Реролл"
+            spellcheck="false"
+          ></textarea>
+          <div class="hint" id="text-hint">0 варіантів</div>
+        </section>
+
+        <section id="pane-image" class="pane hidden">
+          <div id="dropzone" class="dropzone">
+            <div class="dropzone-icon">🖼️</div>
+            <div>Перетягни сюди пачку зображень<br />або натисни, щоб обрати</div>
+          </div>
+          <input id="file-input" type="file" multiple accept="image/*" hidden />
+          <div id="thumbs" class="thumbs"></div>
+          <div class="pane-row">
+            <div class="hint" id="image-hint">0 зображень</div>
+            <button id="btn-clear-images" class="btn ghost small hidden">Очистити все</button>
+          </div>
+        </section>
+
+        <footer class="panel-foot">
+          <label class="foot-label" for="code-input">Відкрити збережене колесо</label>
+          <div class="code-row">
+            <input id="code-input" maxlength="8" placeholder="КОД" autocomplete="off" />
+            <button id="btn-open" class="btn gold small">Відкрити</button>
+          </div>
+        </footer>
+      </aside>
+
+      <section class="arena">
+        <div class="wheel-wrap" id="wheel-wrap">
+          <canvas id="wheel"></canvas>
+        </div>
+        <button id="btn-spin" class="btn spin-btn" disabled>Крутити!</button>
+      </section>
+    </main>
+
+    <button id="btn-panel-toggle" class="btn panel-toggle">⚙ Налаштування</button>
+
+    <div id="preview" class="preview hidden">
+      <img id="preview-img" alt="" />
+      <div id="preview-label" class="preview-label"></div>
+    </div>
+
+    <div id="winner-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-card">
+        <img class="modal-gavel" src="/logo.png" alt="" />
+        <div class="modal-eyebrow">Переможець!</div>
+        <div id="winner-content" class="winner-content"></div>
+        <div class="modal-actions">
+          <button id="btn-remove-winner" class="btn ghost">Прибрати з колеса</button>
+          <button id="btn-close-winner" class="btn gold">Готово</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
