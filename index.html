@@ -18,10 +18,10 @@
       <div class="topbar-actions">
         <button id="btn-sound" class="btn icon" title="Звук" aria-label="Звук">🔊</button>
         <div id="save-pill" class="save-pill hidden" title="Натисни — скопіює посилання">
+          <span class="save-dot" aria-hidden="true"></span>
           <span class="save-pill-code"></span>
           <span class="save-pill-hint">копіювати</span>
         </div>
-        <button id="btn-save" class="btn gold">Зберегти</button>
       </div>
     </header>
 
@@ -52,6 +52,14 @@
             <div class="hint" id="image-hint">0 зображень</div>
             <button id="btn-clear-images" class="btn ghost small hidden">Очистити все</button>
           </div>
+        </section>
+
+        <section id="played-box" class="played-box hidden">
+          <div class="played-head">
+            <span class="played-title">Розіграні <span id="played-count">0</span></span>
+            <button id="btn-return-all" class="btn ghost small">Повернути всі</button>
+          </div>
+          <div id="played-list" class="played-list"></div>
         </section>
 
         <footer class="panel-foot">
@@ -85,7 +93,7 @@
         <div class="modal-eyebrow">Переможець!</div>
         <div id="winner-content" class="winner-content"></div>
         <div class="modal-actions">
-          <button id="btn-remove-winner" class="btn ghost">Прибрати з колеса</button>
+          <button id="btn-remove-winner" class="btn ghost">Прибрати з колеса →</button>
           <button id="btn-close-winner" class="btn gold">Готово</button>
         </div>
       </div>

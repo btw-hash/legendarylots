@@ -35,6 +35,42 @@ export function tick(): void {
   osc.stop(t + 0.05);
 }
 
+/** A single wooden gavel knock — used per strike during a spin. */
+export function gavelBang(intensity = 1): void {
+  if (muted) return;
+  const a = ac();
+  const t0 = a.currentTime;
+
+  // Wooden knock: short band-passed noise crack...
+  const len = Math.floor(a.sampleRate * 0.11);
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 3;
+  const src = a.createBufferSource();
+  src.buffer = buf;
+  const bp = a.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 440;
+  bp.Q.value = 0.9;
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.5 * intensity, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
+  src.connect(bp).connect(g).connect(a.destination);
+  src.start(t0);
+
+  // ...over a low block-thump.
+  const osc = a.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(165, t0);
+  osc.frequency.exponentialRampToValueAtTime(58, t0 + 0.12);
+  const og = a.createGain();
+  og.gain.setValueAtTime(0.32 * intensity, t0);
+  og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
+  osc.connect(og).connect(a.destination);
+  osc.start(t0);
+  osc.stop(t0 + 0.16);
+}
+
 export function winFanfare(): void {
   if (muted) return;
   const a = ac();

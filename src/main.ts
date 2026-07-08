@@ -11,8 +11,9 @@ import { burstConfetti } from './confetti';
 
 const $ = <T extends HTMLElement>(sel: string): T => document.querySelector(sel) as T;
 
-const state: WheelData = { name: '', mode: 'text', texts: [], images: [] };
+const state: WheelData = { name: '', mode: 'text', texts: [], images: [], played: [] };
 let winnerIdx = -1;
+let dirty = false; // only auto-save after a real user edit
 
 const wheel = new Wheel($('#wheel') as unknown as HTMLCanvasElement);
 
@@ -23,13 +24,22 @@ function currentSectors(): Sector[] {
     return state.texts.map((t, i) => ({ label: t, color: PALETTE[i % PALETTE.length] }));
   }
   return state.images.map((img, i) => ({
-    label: img.label ?? `Лот ${i + 1}`,
+    label: img.label ?? '',
     imageUrl: img.url,
     color: PALETTE[i % PALETTE.length],
   }));
 }
 
+/** Full rebuild: wheel + thumbs + hints + played + autosave. */
 function rebuild(): void {
+  applyWheel();
+  renderThumbs();
+  renderPlayed();
+  $('#btn-clear-images').classList.toggle('hidden', state.images.length === 0);
+}
+
+/** Wheel + hints only — used while typing a caption so thumb inputs keep focus. */
+function applyWheel(): void {
   const sectors = currentSectors();
   wheel.setSectors(sectors);
   ($('#btn-spin') as HTMLButtonElement).disabled = sectors.length < 2;
@@ -40,9 +50,8 @@ function rebuild(): void {
     'зображення',
     'зображень'
   );
-  $('#btn-clear-images').classList.toggle('hidden', state.images.length === 0);
-  renderThumbs();
   saveDraft();
+  if (dirty) scheduleSave();
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -60,6 +69,7 @@ document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
     const mode = tab.dataset.mode as WheelData['mode'];
     if (mode === state.mode) return;
     state.mode = mode;
+    dirty = true;
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
     $('#pane-text').classList.toggle('hidden', mode !== 'text');
     $('#pane-image').classList.toggle('hidden', mode !== 'image');
@@ -78,7 +88,8 @@ textInput.addEventListener('input', () => {
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
-    rebuild();
+    dirty = true;
+    applyWheel();
   }, 180);
 });
 
@@ -113,6 +124,7 @@ async function addFiles(files: FileList): Promise<void> {
     if (r.status === 'fulfilled') state.images.push({ url: r.value });
     else failed++;
   }
+  dirty = true;
   toast(failed ? `⚠️ ${failed} не завантажилось` : 'Готово!');
   rebuild();
 }
@@ -123,23 +135,100 @@ function renderThumbs(): void {
   state.images.forEach((img, i) => {
     const cell = document.createElement('div');
     cell.className = 'thumb';
+
     const pic = document.createElement('img');
     pic.src = img.url;
     pic.alt = img.label ?? '';
+
     const del = document.createElement('button');
+    del.className = 'thumb-del';
     del.textContent = '✕';
     del.title = 'Прибрати';
     del.addEventListener('click', () => {
       state.images.splice(i, 1);
+      dirty = true;
       rebuild();
     });
-    cell.append(pic, del);
+
+    const cap = document.createElement('input');
+    cap.className = 'thumb-caption';
+    cap.value = img.label ?? '';
+    cap.placeholder = 'підпис…';
+    cap.maxLength = 40;
+    let capDebounce = 0;
+    cap.addEventListener('input', () => {
+      state.images[i].label = cap.value.trim() || undefined;
+      dirty = true;
+      clearTimeout(capDebounce);
+      capDebounce = window.setTimeout(applyWheel, 220); // keep input focus (no thumb re-render)
+    });
+
+    cell.append(pic, del, cap);
     box.appendChild(cell);
   });
 }
 
 $('#btn-clear-images').addEventListener('click', () => {
   state.images = [];
+  dirty = true;
+  rebuild();
+});
+
+/* ── Played window ── */
+
+function renderPlayed(): void {
+  const box = $('#played-box');
+  box.classList.toggle('hidden', state.played.length === 0);
+  $('#played-count').textContent = `(${state.played.length})`;
+  const list = $('#played-list');
+  list.innerHTML = '';
+  state.played.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'played-item';
+    if (p.imageUrl) {
+      const img = document.createElement('img');
+      img.src = p.imageUrl;
+      img.alt = p.label;
+      row.appendChild(img);
+    }
+    const label = document.createElement('span');
+    label.className = 'played-label';
+    label.textContent = p.label || (p.imageUrl ? `Лот ${i + 1}` : '—');
+    row.appendChild(label);
+
+    const back = document.createElement('button');
+    back.className = 'btn ghost small';
+    back.textContent = '↩';
+    back.title = 'Повернути на колесо';
+    back.addEventListener('click', () => returnPlayed(i));
+    row.appendChild(back);
+
+    list.appendChild(row);
+  });
+}
+
+function returnPlayed(i: number): void {
+  const p = state.played[i];
+  if (!p) return;
+  state.played.splice(i, 1);
+  if (p.imageUrl) {
+    state.images.push({ url: p.imageUrl, label: p.label || undefined });
+  } else {
+    state.texts.push(p.label);
+    if (state.mode === 'text') textInput.value = state.texts.join('\n');
+  }
+  dirty = true;
+  rebuild();
+}
+
+$('#btn-return-all').addEventListener('click', () => {
+  for (const p of state.played) {
+    if (p.imageUrl) state.images.push({ url: p.imageUrl, label: p.label || undefined });
+    else state.texts.push(p.label);
+  }
+  state.played = [];
+  if (state.mode === 'text') textInput.value = state.texts.join('\n');
+  dirty = true;
   rebuild();
 });
 
@@ -181,15 +270,19 @@ function showWinner(idx: number): void {
     img.src = s.imageUrl;
     img.alt = s.label;
     box.appendChild(img);
-  } else {
+  }
+  if (s.label || !s.imageUrl) {
     const div = document.createElement('div');
     div.className = 'winner-text';
-    div.textContent = s.label;
+    div.textContent = s.label || '🎉';
     box.appendChild(div);
   }
   $('#winner-modal').classList.remove('hidden');
-  winFanfare();
-  burstConfetti();
+  // Fanfare + confetti fire after the gavel's final slam (≈0.3s) lands.
+  setTimeout(() => {
+    winFanfare();
+    burstConfetti();
+  }, 120);
 }
 
 function closeWinner(): void {
@@ -200,6 +293,9 @@ $('#btn-close-winner').addEventListener('click', closeWinner);
 document.querySelector('.modal-backdrop')!.addEventListener('click', closeWinner);
 $('#btn-remove-winner').addEventListener('click', () => {
   if (winnerIdx < 0) return;
+  const s = currentSectors()[winnerIdx];
+  // Move to the played window — kept, not deleted.
+  if (s) state.played.push({ label: s.label, imageUrl: s.imageUrl, mode: state.mode });
   if (state.mode === 'text') {
     state.texts.splice(winnerIdx, 1);
     textInput.value = state.texts.join('\n');
@@ -207,6 +303,7 @@ $('#btn-remove-winner').addEventListener('click', () => {
     state.images.splice(winnerIdx, 1);
   }
   winnerIdx = -1;
+  dirty = true;
   closeWinner();
   rebuild();
 });
@@ -269,37 +366,50 @@ wheelCanvas.addEventListener('touchend', () => {
   setTimeout(hidePreview, 1400);
 });
 
-/* ── Save / load / share ── */
+/* ── Auto-save (every wheel has a live code — no Save button) ── */
 
 const savePill = $('#save-pill');
+let saveTimer = 0;
+let saving = false;
 
-async function doSave(): Promise<void> {
-  if (wheel.count === 0) {
-    toast('Колесо порожнє — додай варіанти');
+function scheduleSave(): void {
+  if (wheel.count < 1 && state.played.length === 0) return; // nothing worth a code yet
+  clearTimeout(saveTimer);
+  setSaveState('pending');
+  saveTimer = window.setTimeout(doAutoSave, 900);
+}
+
+async function doAutoSave(): Promise<void> {
+  if (saving) {
+    scheduleSave();
     return;
   }
-  const btn = $('#btn-save') as HTMLButtonElement;
-  btn.disabled = true;
+  saving = true;
+  setSaveState('saving');
   try {
     const id = await saveWheel(state);
     state.id = id;
-    history.replaceState(null, '', `/w/${id}`);
+    if (!location.pathname.endsWith(`/w/${id}`)) history.replaceState(null, '', `/w/${id}`);
     savePill.querySelector('.save-pill-code')!.textContent = id;
     savePill.classList.remove('hidden');
-    toast('Збережено! Відкрий це посилання на планшеті');
-    saveDraft();
+    setSaveState('saved');
   } catch {
-    toast('⚠️ Не вдалося зберегти');
+    setSaveState('error');
   } finally {
-    btn.disabled = false;
+    saving = false;
   }
 }
 
-$('#btn-save').addEventListener('click', () => void doSave());
+function setSaveState(s: 'pending' | 'saving' | 'saved' | 'error'): void {
+  savePill.dataset.state = s;
+}
 
 savePill.addEventListener('click', () => {
+  if (!state.id) return;
   void navigator.clipboard.writeText(location.href).then(() => toast('Посилання скопійовано'));
 });
+
+/* ── Open by code ── */
 
 $('#btn-open').addEventListener('click', () => void openByCode());
 ($('#code-input') as HTMLInputElement).addEventListener('keydown', (e) => {
@@ -327,6 +437,9 @@ function applyLoaded(data: WheelData): void {
   state.images = Array.isArray(data.images)
     ? data.images.filter((i) => i && typeof i.url === 'string')
     : [];
+  state.played = Array.isArray(data.played)
+    ? data.played.filter((p) => p && typeof p.label === 'string')
+    : [];
   textInput.value = state.texts.join('\n');
   document
     .querySelectorAll<HTMLButtonElement>('.tab')
@@ -336,7 +449,9 @@ function applyLoaded(data: WheelData): void {
   if (state.id) {
     savePill.querySelector('.save-pill-code')!.textContent = state.id;
     savePill.classList.remove('hidden');
+    setSaveState('saved');
   }
+  dirty = false;
   rebuild();
 }
 
@@ -403,8 +518,7 @@ async function boot(): Promise<void> {
     if (draft) applyLoaded(draft);
   }
   rebuild();
-  // Canvas text uses a webfont — rebake once fonts are actually ready (Cyrillic subset included).
-  void document.fonts.ready.then(() => rebuild());
+  void document.fonts.ready.then(() => applyWheel());
 }
 
 void boot();

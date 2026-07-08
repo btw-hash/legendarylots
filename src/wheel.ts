@@ -1,5 +1,5 @@
 import type { Sector } from './types';
-import { tick } from './audio';
+import { tick, gavelBang } from './audio';
 
 const TAU = Math.PI * 2;
 
@@ -20,6 +20,11 @@ export const PALETTE = [
 const RIM_FRAC = 0.085;
 const HUB_FRAC = 0.16;
 
+// Gavel strike timing (ms).
+const RAISE = 175;
+const SLAM = 90;
+const SETTLE = 165;
+
 export class Wheel {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -35,12 +40,26 @@ export class Wheel {
   private cssSize = 0;
   private bakeGen = 0;
 
+  // Animated gavel (extracted from the emblem, banged like a judge on spin).
+  private gavelSprite: HTMLCanvasElement | null = null;
+  private gavelSize = 0;
+  private gavelPivot = { x: 0, y: 0 };
+  private feltColor = '#1B57A6';
+  private strikeStart = -1;
+  private strikeBig = false;
+  private impactFired = false;
+  private shockAt = -1e9;
+  private gavelScale = 1;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.hubLogo = new Image();
     this.hubLogo.src = '/logo.png';
-    this.hubLogo.onload = () => this.render();
+    this.hubLogo.onload = () => {
+      this.extractGavel();
+      this.render();
+    };
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement!);
     this.resize();
   }
@@ -104,6 +123,8 @@ export class Wheel {
       const dur = 4600 + Math.random() * 1800;
       const t0 = performance.now();
       this.lastIdx = this.pointerIndex();
+      this.triggerStrike(false);
+      let nextStrike = t0 + 430;
 
       const step = (now: number) => {
         const t = Math.min(1, (now - t0) / dur);
@@ -114,11 +135,18 @@ export class Wheel {
           this.wobbleAt = now;
           tick();
         }
+        // Rhythmic banging while the wheel is still turning fast enough.
+        if (now >= nextStrike && t < 0.94) {
+          this.triggerStrike(false);
+          nextStrike = now + 430;
+        }
         this.render(now);
         if (t < 1) {
           this.raf = requestAnimationFrame(step);
         } else {
           this.spinning = false;
+          this.triggerStrike(true); // final decisive slam = verdict
+          this.render(now);
           resolve(this.pointerIndex());
         }
       };
@@ -176,7 +204,6 @@ export class Wheel {
       if (img && img.complete && img.naturalWidth) {
         drawCoverInWedge(ctx, img, c, rimInner, hubR, a0, a1);
       } else if (!s.imageUrl) {
-        // Subtle radial shading for depth on color sectors.
         const g = ctx.createRadialGradient(c, c, hubR, c, c, rimInner);
         g.addColorStop(0, 'rgba(255,255,255,0.10)');
         g.addColorStop(1, 'rgba(0,0,0,0.18)');
@@ -196,28 +223,16 @@ export class Wheel {
       ctx.restore();
     }
 
-    // Text labels (text mode sectors only).
+    // Labels: text sectors always; image sectors only when captioned (on a pill).
     const dpr = size / this.cssSize;
     for (let i = 0; i < n; i++) {
       const s = this.sectors[i];
-      if (s.imageUrl) continue;
-      const mid = (i + 0.5) * step - Math.PI / 2;
-      const fontPx = Math.max(12, Math.min(26, (this.cssSize / Math.max(6, n)) * 0.42)) * dpr;
-      // Labels bake into wheel-local coords and always read center→out (same as
-      // spinthewheel.io): after a spin the wheel rests at an arbitrary angle, so
-      // no static flip can keep every label upright — this is the genre norm.
-      ctx.save();
-      ctx.translate(c, c);
-      ctx.rotate(mid);
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.font = `700 ${fontPx}px "Alegreya Sans", sans-serif`;
-      ctx.fillStyle = '#FFF7E6';
-      ctx.shadowColor = 'rgba(0,0,0,0.55)';
-      ctx.shadowBlur = 3 * dpr;
-      const maxW = rimInner - hubR * 1.5;
-      ctx.fillText(truncate(ctx, s.label, maxW), rimInner - 10 * dpr, 0);
-      ctx.restore();
+      if (!s.label) continue;
+      if (s.imageUrl) {
+        this.drawCaptionPill(ctx, s.label, i, step, c, rimInner, hubR, dpr);
+      } else {
+        this.drawSectorLabel(ctx, s.label, i, step, c, rimInner, hubR, n, dpr);
+      }
     }
 
     // Rim edges + studs (like the logo's gold dots).
@@ -248,6 +263,67 @@ export class Wheel {
 
     this.baked = off;
     this.render();
+  }
+
+  private drawSectorLabel(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    i: number,
+    step: number,
+    c: number,
+    rimInner: number,
+    hubR: number,
+    n: number,
+    dpr: number
+  ): void {
+    const mid = (i + 0.5) * step - Math.PI / 2;
+    const fontPx = Math.max(12, Math.min(26, (this.cssSize / Math.max(6, n)) * 0.42)) * dpr;
+    ctx.save();
+    ctx.translate(c, c);
+    ctx.rotate(mid);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${fontPx}px "Alegreya Sans", sans-serif`;
+    ctx.fillStyle = '#FFF7E6';
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 3 * dpr;
+    const maxW = rimInner - hubR * 1.5;
+    ctx.fillText(truncate(ctx, text, maxW), rimInner - 10 * dpr, 0);
+    ctx.restore();
+  }
+
+  /** Caption over an image sector: a dark rounded pill near the rim for legibility. */
+  private drawCaptionPill(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    i: number,
+    step: number,
+    c: number,
+    rimInner: number,
+    hubR: number,
+    dpr: number
+  ): void {
+    const mid = (i + 0.5) * step - Math.PI / 2;
+    const fontPx = Math.max(11, Math.min(20, (this.cssSize / 22) * dpr));
+    ctx.save();
+    ctx.translate(c, c);
+    ctx.rotate(mid);
+    ctx.font = `700 ${fontPx}px "Alegreya Sans", sans-serif`;
+    const maxW = rimInner - hubR * 1.6;
+    const label = truncate(ctx, text, maxW);
+    const tw = ctx.measureText(label).width;
+    const padX = 8 * dpr;
+    const h = fontPx + 8 * dpr;
+    const right = rimInner - 8 * dpr;
+    const left = right - tw - padX * 2;
+    roundRect(ctx, left, -h / 2, tw + padX * 2, h, h / 2);
+    ctx.fillStyle = 'rgba(18,9,4,0.72)';
+    ctx.fill();
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#FFF3D8';
+    ctx.fillText(label, right - padX, 0);
+    ctx.restore();
   }
 
   private loadImage(url: string): Promise<void> {
@@ -282,8 +358,20 @@ export class Wheel {
       ctx.restore();
     }
 
-    this.drawHub(ctx, c, R);
+    // Impact: fire sound + shockwave at the bottom of the slam.
+    if (this.strikeStart >= 0 && !this.impactFired && now - this.strikeStart >= RAISE) {
+      this.impactFired = true;
+      this.shockAt = now;
+      gavelBang(this.strikeBig ? 1.4 : 0.75);
+    }
+
+    this.drawHub(ctx, c, R, now);
     this.drawPointer(ctx, c, R, now);
+
+    // Keep animating while a strike or shockwave is in flight (outside the spin loop).
+    if (!this.spinning && (this.strikeStart >= 0 || now - this.shockAt < 320)) {
+      this.raf = requestAnimationFrame((t) => this.render(t));
+    }
   }
 
   private drawEmpty(ctx: CanvasRenderingContext2D, c: number, R: number): void {
@@ -299,10 +387,23 @@ export class Wheel {
     ctx.restore();
   }
 
-  private drawHub(ctx: CanvasRenderingContext2D, c: number, R: number): void {
+  private drawHub(ctx: CanvasRenderingContext2D, c: number, R: number, now: number): void {
     const hubR = R * HUB_FRAC;
+
+    // Shockwave ring under the emblem.
+    const sdt = (now - this.shockAt) / 320;
+    if (sdt >= 0 && sdt < 1) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(c, c, hubR * (0.9 + sdt * 1.4), 0, TAU);
+      ctx.strokeStyle = `rgba(255,220,120,${0.5 * (1 - sdt)})`;
+      ctx.lineWidth = Math.max(2, R * 0.02 * (1 - sdt));
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.save();
-    // Blue felt disc under the logo, matching the emblem.
+    // Blue felt disc under the emblem.
     ctx.beginPath();
     ctx.arc(c, c, hubR, 0, TAU);
     ctx.fillStyle = '#1B57A6';
@@ -310,14 +411,48 @@ export class Wheel {
     ctx.lineWidth = Math.max(2.5, R * 0.012);
     ctx.strokeStyle = '#E0A82E';
     ctx.stroke();
+
     if (this.hubLogo.complete && this.hubLogo.naturalWidth) {
       const d = hubR * 2 * 0.98;
+      ctx.save();
       ctx.beginPath();
       ctx.arc(c, c, hubR * 0.98, 0, TAU);
       ctx.clip();
       ctx.drawImage(this.hubLogo, c - d / 2, c - d / 2, d, d);
+      // Cover the emblem's baked-in gavel (flat true-felt color) so the animated
+      // one is the only gavel; the seam is invisible because it matches the felt.
+      if (this.gavelSprite) {
+        ctx.beginPath();
+        ctx.arc(c, c, hubR * 0.62, 0, TAU);
+        ctx.fillStyle = this.feltColor;
+        ctx.fill();
+      }
+      ctx.restore();
     }
     ctx.restore();
+
+    // Animated gavel on top of the felt.
+    if (this.gavelSprite) {
+      this.gavelScale += ((this.spinning ? 1.16 : 1) - this.gavelScale) * 0.2;
+      const drawW = hubR * 1.55 * this.gavelScale;
+      const s = drawW / this.gavelSize;
+      const ang = this.gavelAngle(now);
+      const cxp = c + (this.gavelPivot.x - this.gavelSize / 2) * s;
+      const cyp = c + (this.gavelPivot.y - this.gavelSize / 2) * s;
+      ctx.save();
+      ctx.translate(cxp, cyp);
+      ctx.rotate(ang);
+      ctx.shadowColor = 'rgba(0,0,0,0.45)';
+      ctx.shadowBlur = 6 * (this.canvas.width / this.cssSize);
+      ctx.drawImage(
+        this.gavelSprite,
+        -this.gavelPivot.x * s,
+        -this.gavelPivot.y * s,
+        this.gavelSize * s,
+        this.gavelSize * s
+      );
+      ctx.restore();
+    }
   }
 
   private drawPointer(ctx: CanvasRenderingContext2D, c: number, R: number, now: number): void {
@@ -342,10 +477,162 @@ export class Wheel {
     ctx.stroke();
     ctx.restore();
   }
+
+  // ── Gavel ──────────────────────────────────────────────────────────────
+
+  private triggerStrike(big: boolean): void {
+    this.strikeStart = performance.now();
+    this.strikeBig = big;
+    this.impactFired = false;
+  }
+
+  /** Current strike rotation (rad). Raise back, slam down past rest, settle to 0. */
+  private gavelAngle(now: number): number {
+    if (this.strikeStart < 0) return 0;
+    const t = now - this.strikeStart;
+    const raiseAng = this.strikeBig ? -1.05 : -0.6;
+    const slamAng = 0.14;
+    if (t < RAISE) return raiseAng * easeOut(t / RAISE);
+    if (t < RAISE + SLAM) return raiseAng + (slamAng - raiseAng) * easeIn((t - RAISE) / SLAM);
+    if (t < RAISE + SLAM + SETTLE) {
+      return slamAng * (1 - easeOut((t - RAISE - SLAM) / SETTLE));
+    }
+    this.strikeStart = -1;
+    return 0;
+  }
+
+  /** Isolate the gavel from the emblem via a blue chroma-key on the felt center. */
+  private extractGavel(): void {
+    const logo = this.hubLogo;
+    const S = logo.naturalWidth;
+    if (!S) return;
+    const work = document.createElement('canvas');
+    work.width = work.height = S;
+    const wctx = work.getContext('2d', { willReadFrequently: true });
+    if (!wctx) return;
+    wctx.drawImage(logo, 0, 0);
+
+    const full = wctx.getImageData(0, 0, S, S).data;
+    const felt = (r: number, g: number, b: number) => b > 95 && b - r > 22 && b - g > 8;
+    const px = (x: number, y: number) => {
+      const i = (Math.round(y) * S + Math.round(x)) * 4;
+      return felt(full[i], full[i + 1], full[i + 2]);
+    };
+    // Felt radius = the furthest still-blue point along rays from center (rays that
+    // cross the gavel come up short; the max ray hits the true felt→wood edge).
+    let feltR = S * 0.2;
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * TAU;
+      let last = 0;
+      for (let r = S * 0.08; r < S * 0.4; r += 1) {
+        if (px(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r)) last = r;
+      }
+      if (last > feltR) feltR = last;
+    }
+
+    // Sample the true felt color (pure-felt ring at ~0.88 feltR) so the patch that
+    // hides the baked gavel blends seamlessly under the animated one.
+    let fr = 0,
+      fg = 0,
+      fb = 0,
+      fn = 0;
+    for (let k = 0; k < 48; k++) {
+      const a = (k / 48) * TAU;
+      const x = Math.round(S / 2 + Math.cos(a) * feltR * 0.88);
+      const y = Math.round(S / 2 + Math.sin(a) * feltR * 0.88);
+      const i = (y * S + x) * 4;
+      if (felt(full[i], full[i + 1], full[i + 2])) {
+        fr += full[i];
+        fg += full[i + 1];
+        fb += full[i + 2];
+        fn++;
+      }
+    }
+    if (fn) this.feltColor = `rgb(${(fr / fn) | 0},${(fg / fn) | 0},${(fb / fn) | 0})`;
+
+    const cropR = feltR * 0.99;
+    const x0 = Math.floor(S / 2 - cropR);
+    const y0 = Math.floor(S / 2 - cropR);
+    const sz = Math.ceil(cropR * 2);
+    const img = wctx.getImageData(x0, y0, sz, sz);
+    const d = img.data;
+
+    let minX = sz,
+      minY = sz,
+      maxX = 0,
+      maxY = 0,
+      kept = 0;
+    for (let p = 0; p < d.length; p += 4) {
+      const r = d[p],
+        g = d[p + 1],
+        b = d[p + 2];
+      const px = (p / 4) % sz;
+      const py = Math.floor(p / 4 / sz);
+      const outside = Math.hypot(px - sz / 2, py - sz / 2) > sz / 2 - 2;
+      // Felt is a saturated mid-blue; the gavel is browns/oranges/gold/near-black.
+      const isFelt = b > 95 && b - r > 22 && b - g > 8;
+      if (isFelt || outside) {
+        d[p + 3] = 0;
+      } else if (d[p + 3] > 8) {
+        kept++;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+    }
+    if (kept < sz * 2) return; // chroma-key failed — keep the static emblem gavel
+
+    wctx.putImageData(img, x0, y0); // commit the keyed pixels back where they came from
+    // Tight crop to the gavel bbox (+ small margin).
+    const m = Math.round(sz * 0.04);
+    const bx = Math.max(0, minX - m);
+    const by = Math.max(0, minY - m);
+    const bw = Math.min(sz, maxX + m) - bx;
+    const bh = Math.min(sz, maxY + m) - by;
+    // Pad the tight crop into a centered square so the pivot math is simple.
+    const size2 = Math.max(bw, bh);
+    const padX = (size2 - bw) / 2;
+    const padY = (size2 - bh) / 2;
+    const sq = document.createElement('canvas');
+    sq.width = sq.height = size2;
+    sq.getContext('2d')!.drawImage(work, x0 + bx, y0 + by, bw, bh, padX, padY, bw, bh);
+
+    this.gavelSprite = sq;
+    this.gavelSize = size2;
+    // Pivot at the handle end (bottom-center of the gavel bbox) — head swings from there.
+    this.gavelPivot = { x: padX + bw / 2, y: padY + bh };
+  }
 }
 
 function norm(a: number): number {
   return ((a % TAU) + TAU) % TAU;
+}
+
+function easeOut(k: number): number {
+  return 1 - (1 - k) ** 3;
+}
+
+function easeIn(k: number): number {
+  return k ** 3;
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+): void {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
 }
 
 function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
@@ -365,7 +652,6 @@ function drawCoverInWedge(
   a0: number,
   a1: number
 ): void {
-  // Bounding box of the wedge region (sampled along both arcs).
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
