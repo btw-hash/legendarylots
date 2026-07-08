@@ -5,7 +5,8 @@ import './style.css';
 
 import type { Sector, WheelData } from './types';
 import { Wheel, PALETTE } from './wheel';
-import { saveWheel, loadWheel, uploadImage } from './api';
+import { saveWheel, loadWheel, uploadImage, listWheels, deleteWheel } from './api';
+import type { WheelSummary } from './api';
 import { winFanfare, toggleMute, isMuted } from './audio';
 import { burstConfetti } from './confetti';
 
@@ -44,6 +45,7 @@ function applyWheel(): void {
   wheel.setSectors(sectors);
   ($('#btn-spin') as HTMLButtonElement).disabled = sectors.length < 2;
   $('#text-hint').textContent = plural(state.texts.length, 'варіант', 'варіанти', 'варіантів');
+  $('#btn-clear-text').classList.toggle('hidden', state.texts.length === 0);
   $('#image-hint').textContent = plural(
     state.images.length,
     'зображення',
@@ -174,32 +176,28 @@ $('#btn-clear-images').addEventListener('click', () => {
   rebuild();
 });
 
+$('#btn-clear-text').addEventListener('click', () => {
+  state.texts = [];
+  textInput.value = '';
+  dirty = true;
+  rebuild();
+});
+
 /* ── Played window ── */
 
-function renderPlayed(): void {
-  const box = $('#played-box');
-  box.classList.toggle('hidden', state.played.length === 0);
-  $('#played-count').textContent = `(${state.played.length})`;
-  const list = $('#played-list');
-  list.innerHTML = '';
-
-  // Keep original indices so return still targets the right entry.
-  const indexed = state.played.map((p, i) => ({ p, i }));
-  const images = indexed.filter((x) => x.p.imageUrl);
-  const texts = indexed.filter((x) => !x.p.imageUrl);
-  if (images.length) addPlayedGroup(list, 'Зображення', images);
-  if (texts.length) addPlayedGroup(list, 'Текст', texts);
+/** Played entries for the CURRENT tab only — images on the image tab, text on text. */
+function playedForMode(): { p: WheelData['played'][number]; i: number }[] {
+  return state.played
+    .map((p, i) => ({ p, i }))
+    .filter((x) => (state.mode === 'image' ? !!x.p.imageUrl : !x.p.imageUrl));
 }
 
-function addPlayedGroup(
-  list: HTMLElement,
-  title: string,
-  items: { p: WheelData['played'][number]; i: number }[]
-): void {
-  const head = document.createElement('div');
-  head.className = 'played-group-head';
-  head.textContent = `${title} · ${items.length}`;
-  list.appendChild(head);
+function renderPlayed(): void {
+  const items = playedForMode();
+  $('#played-box').classList.toggle('hidden', items.length === 0);
+  $('#played-count').textContent = `(${items.length})`;
+  const list = $('#played-list');
+  list.innerHTML = '';
 
   items.forEach(({ p, i }) => {
     const row = document.createElement('div');
@@ -241,11 +239,13 @@ function returnPlayed(i: number): void {
 }
 
 $('#btn-return-all').addEventListener('click', () => {
-  for (const p of state.played) {
+  // Return only the entries shown on the current tab.
+  const returning = playedForMode().map((x) => x.p);
+  state.played = state.played.filter((p) => !returning.includes(p));
+  for (const p of returning) {
     if (p.imageUrl) state.images.push({ url: p.imageUrl, label: p.label || undefined });
     else state.texts.push(p.label);
   }
-  state.played = [];
   if (state.mode === 'text') textInput.value = state.texts.join('\n');
   dirty = true;
   rebuild();
@@ -427,6 +427,82 @@ savePill.addEventListener('click', () => {
   if (!state.id) return;
   void navigator.clipboard.writeText(location.href).then(() => toast('Посилання скопійовано'));
 });
+
+// Explicit Save — flush now, confirm, and its seed shows up in "Мої колеса".
+$('#btn-save').addEventListener('click', async () => {
+  if (wheel.count < 1) {
+    toast('Колесо порожнє — додай варіанти');
+    return;
+  }
+  clearTimeout(saveTimer);
+  await doAutoSave();
+  toast(state.id ? `Збережено ✓ (${state.id})` : 'Збережено ✓');
+});
+
+/* ── My wheels: pick a saved seed ── */
+
+const myWheelsBox = $('#my-wheels');
+
+$('#btn-my-wheels').addEventListener('click', async () => {
+  if (!myWheelsBox.classList.contains('hidden')) {
+    myWheelsBox.classList.add('hidden');
+    return;
+  }
+  myWheelsBox.innerHTML = '<div class="mw-empty">Завантаження…</div>';
+  myWheelsBox.classList.remove('hidden');
+  const wheels = await listWheels().catch(() => [] as WheelSummary[]);
+  renderMyWheels(wheels);
+});
+
+function renderMyWheels(wheels: WheelSummary[]): void {
+  myWheelsBox.innerHTML = '';
+  if (!wheels.length) {
+    myWheelsBox.innerHTML = '<div class="mw-empty">Поки що немає збережених коліс</div>';
+    return;
+  }
+  for (const w of wheels) {
+    const row = document.createElement('div');
+    row.className = 'mw-item';
+    if (w.id === state.id) row.classList.add('current');
+
+    const main = document.createElement('button');
+    main.className = 'mw-open';
+    main.innerHTML =
+      `<span class="mw-label">${escapeHtml(w.label)}</span>` +
+      `<span class="mw-meta">${w.mode === 'image' ? '🖼' : '📝'} ${w.count} · ${w.id}</span>`;
+    main.addEventListener('click', async () => {
+      const data = await loadWheel(w.id).catch(() => null);
+      if (!data) {
+        toast('⚠️ Не вдалося відкрити');
+        return;
+      }
+      applyLoaded(data);
+      history.replaceState(null, '', `/w/${data.id}`);
+      myWheelsBox.classList.add('hidden');
+      toast('Колесо відкрито');
+    });
+
+    const del = document.createElement('button');
+    del.className = 'mw-del';
+    del.textContent = '✕';
+    del.title = 'Видалити';
+    del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await deleteWheel(w.id);
+      renderMyWheels(await listWheels().catch(() => []));
+    });
+
+    row.append(main, del);
+    myWheelsBox.appendChild(row);
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!
+  );
+}
 
 /* ── Open by code ── */
 

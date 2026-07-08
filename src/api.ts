@@ -11,6 +11,24 @@ export async function saveWheel(wheel: WheelData): Promise<string> {
   return id;
 }
 
+export interface WheelSummary {
+  id: string;
+  label: string;
+  mode: string;
+  count: number;
+  savedAt: string;
+}
+
+export async function listWheels(): Promise<WheelSummary[]> {
+  const res = await fetch('/api/wheels');
+  if (!res.ok) throw new Error(`list failed: ${res.status}`);
+  return (await res.json()) as WheelSummary[];
+}
+
+export async function deleteWheel(id: string): Promise<void> {
+  await fetch(`/api/wheels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function loadWheel(id: string): Promise<WheelData | null> {
   const res = await fetch(`/api/wheels/${encodeURIComponent(id)}`);
   if (res.status === 404) return null;

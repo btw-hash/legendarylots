@@ -22,6 +22,7 @@
           <span class="save-pill-code"></span>
           <span class="save-pill-hint">копіювати</span>
         </div>
+        <button id="btn-save" class="btn gold">Зберегти</button>
       </div>
     </header>
 
@@ -38,7 +39,10 @@
             placeholder="Один рядок — один сектор&#10;&#10;Наприклад:&#10;Скін AK-47&#10;500 голди&#10;Реролл"
             spellcheck="false"
           ></textarea>
-          <div class="hint" id="text-hint">0 варіантів</div>
+          <div class="pane-row">
+            <div class="hint" id="text-hint">0 варіантів</div>
+            <button id="btn-clear-text" class="btn ghost small hidden">Очистити все</button>
+          </div>
         </section>
 
         <section id="pane-image" class="pane hidden">
@@ -63,7 +67,9 @@
         </section>
 
         <footer class="panel-foot">
-          <label class="foot-label" for="code-input">Відкрити збережене колесо</label>
+          <button id="btn-my-wheels" class="btn ghost small full">🎡 Мої колеса</button>
+          <div id="my-wheels" class="my-wheels hidden"></div>
+          <label class="foot-label" for="code-input">Або відкрий за кодом</label>
           <div class="code-row">
             <input id="code-input" maxlength="8" placeholder="КОД" autocomplete="off" />
             <button id="btn-open" class="btn gold small">Відкрити</button>

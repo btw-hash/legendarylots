@@ -1,7 +1,7 @@
 import express from 'express';
 import { createHash } from 'node:crypto';
 import { mkdirSync, existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { customAlphabet } from 'nanoid';
 
@@ -45,6 +45,40 @@ app.post('/api/wheels', async (req, res) => {
   wheel.savedAt = new Date().toISOString();
   await writeFile(wheelPath(id), JSON.stringify(wheel));
   res.json({ id });
+});
+
+// List saved wheels (newest first) for the "my wheels" seed picker.
+app.get('/api/wheels', async (_req, res) => {
+  const files = await readdir(WHEELS).catch(() => [] as string[]);
+  const out: { id: string; label: string; mode: string; count: number; savedAt: string }[] = [];
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    try {
+      const w = JSON.parse(await readFile(path.join(WHEELS, f), 'utf8'));
+      const count = (w.mode === 'image' ? w.images?.length : w.texts?.length) || 0;
+      const label =
+        w.name ||
+        (w.mode === 'image'
+          ? w.images?.[0]?.label || `${count} зображень`
+          : w.texts?.[0] || 'Порожнє') ||
+        w.id;
+      out.push({ id: w.id, label, mode: w.mode ?? 'text', count, savedAt: w.savedAt ?? '' });
+    } catch {
+      /* skip unreadable */
+    }
+  }
+  out.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  res.json(out.slice(0, 60));
+});
+
+app.delete('/api/wheels/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!idOk(id)) {
+    res.status(400).json({ error: 'bad id' });
+    return;
+  }
+  if (existsSync(wheelPath(id))) await unlink(wheelPath(id));
+  res.json({ ok: true });
 });
 
 app.get('/api/wheels/:id', async (req, res) => {

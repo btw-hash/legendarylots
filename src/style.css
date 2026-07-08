@@ -450,19 +450,6 @@ body {
   min-height: 0;
 }
 
-.played-group-head {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-dim);
-  padding: 4px 2px 1px;
-  border-bottom: 1px solid var(--wood-line);
-}
-
-.played-group-head:not(:first-child) {
-  margin-top: 4px;
-}
-
 .played-item {
   display: flex;
   align-items: center;
@@ -495,6 +482,91 @@ body {
 .played-item .btn {
   padding: 3px 10px;
   font-size: 15px;
+}
+
+/* ── My wheels picker ── */
+
+.btn.full {
+  width: 100%;
+}
+
+.my-wheels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--wood-line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.mw-empty {
+  padding: 10px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.mw-item {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.mw-item.current .mw-open {
+  border-color: var(--gold-lo);
+}
+
+.mw-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.mw-open:hover {
+  background: rgba(27, 87, 166, 0.18);
+  border-color: var(--gold-lo);
+}
+
+.mw-label {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'Forum', serif;
+  letter-spacing: 0.06em;
+}
+
+.mw-del {
+  width: 30px;
+  flex-shrink: 0;
+  border: 1px solid var(--wood-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mw-del:hover {
+  color: #c0453a;
+  border-color: #c0453a;
 }
 
 /* ── Panel footer ── */
