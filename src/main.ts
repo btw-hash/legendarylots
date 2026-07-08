@@ -134,13 +134,20 @@ async function addFiles(files: FileList): Promise<void> {
 function renderThumbs(): void {
   const box = $('#thumbs');
   box.innerHTML = '';
-  state.images.forEach((img, i) => {
+  state.images.forEach((entry, i) => {
     const cell = document.createElement('div');
     cell.className = 'thumb';
 
-    const pic = document.createElement('img');
-    pic.src = img.url;
-    pic.alt = img.label ?? '';
+    if (entry.url) {
+      const pic = document.createElement('img');
+      pic.src = entry.url;
+      pic.alt = entry.label ?? '';
+      cell.appendChild(pic);
+    } else {
+      // Text-only sector living inside the image wheel — preview its sector color.
+      cell.classList.add('text-thumb');
+      cell.style.background = PALETTE[i % PALETTE.length];
+    }
 
     const del = document.createElement('button');
     del.className = 'thumb-del';
@@ -154,8 +161,8 @@ function renderThumbs(): void {
 
     const cap = document.createElement('input');
     cap.className = 'thumb-caption';
-    cap.value = img.label ?? '';
-    cap.placeholder = 'підпис…';
+    cap.value = entry.label ?? '';
+    cap.placeholder = entry.url ? 'підпис…' : 'текст…';
     cap.maxLength = 40;
     let capDebounce = 0;
     cap.addEventListener('input', () => {
@@ -165,7 +172,7 @@ function renderThumbs(): void {
       capDebounce = window.setTimeout(applyWheel, 220); // keep input focus (no thumb re-render)
     });
 
-    cell.append(pic, del, cap);
+    cell.append(del, cap);
     box.appendChild(cell);
   });
 }
@@ -183,13 +190,24 @@ $('#btn-clear-text').addEventListener('click', () => {
   rebuild();
 });
 
+$('#btn-add-text-sector').addEventListener('click', () => {
+  state.images.push({}); // empty text sector; user types its caption
+  dirty = true;
+  rebuild();
+  const inputs = document.querySelectorAll<HTMLInputElement>('.thumb-caption');
+  inputs[inputs.length - 1]?.focus();
+});
+
 /* ── Played window ── */
 
-/** Played entries for the CURRENT tab only — images on the image tab, text on text. */
+/** The tab a played entry belongs to (falls back to image presence for old data). */
+function playedMode(p: WheelData['played'][number]): 'image' | 'text' {
+  return p.mode ?? (p.imageUrl ? 'image' : 'text');
+}
+
+/** Played entries for the CURRENT tab only — winners keep the tab they were played on. */
 function playedForMode(): { p: WheelData['played'][number]; i: number }[] {
-  return state.played
-    .map((p, i) => ({ p, i }))
-    .filter((x) => (state.mode === 'image' ? !!x.p.imageUrl : !x.p.imageUrl));
+  return state.played.map((p, i) => ({ p, i })).filter((x) => playedMode(x.p) === state.mode);
 }
 
 function renderPlayed(): void {
@@ -224,16 +242,24 @@ function renderPlayed(): void {
   });
 }
 
+function restoreEntry(p: WheelData['played'][number]): void {
+  if (playedMode(p) === 'image') {
+    state.images.push(
+      p.imageUrl
+        ? { url: p.imageUrl, label: p.label || undefined }
+        : { label: p.label || undefined }
+    );
+  } else {
+    state.texts.push(p.label);
+  }
+}
+
 function returnPlayed(i: number): void {
   const p = state.played[i];
   if (!p) return;
   state.played.splice(i, 1);
-  if (p.imageUrl) {
-    state.images.push({ url: p.imageUrl, label: p.label || undefined });
-  } else {
-    state.texts.push(p.label);
-    if (state.mode === 'text') textInput.value = state.texts.join('\n');
-  }
+  restoreEntry(p);
+  if (state.mode === 'text') textInput.value = state.texts.join('\n');
   dirty = true;
   rebuild();
 }
@@ -242,10 +268,7 @@ $('#btn-return-all').addEventListener('click', () => {
   // Return only the entries shown on the current tab.
   const returning = playedForMode().map((x) => x.p);
   state.played = state.played.filter((p) => !returning.includes(p));
-  for (const p of returning) {
-    if (p.imageUrl) state.images.push({ url: p.imageUrl, label: p.label || undefined });
-    else state.texts.push(p.label);
-  }
+  for (const p of returning) restoreEntry(p);
   if (state.mode === 'text') textInput.value = state.texts.join('\n');
   dirty = true;
   rebuild();
@@ -457,7 +480,7 @@ $('#btn-my-wheels').addEventListener('click', async () => {
 function renderMyWheels(wheels: WheelSummary[]): void {
   myWheelsBox.innerHTML = '';
   if (!wheels.length) {
-    myWheelsBox.innerHTML = '<div class="mw-empty">Поки що немає збережених коліс</div>';
+    myWheelsBox.innerHTML = '<div class="mw-empty">Поки що немає збережених прокрутів</div>';
     return;
   }
   for (const w of wheels) {
@@ -530,7 +553,7 @@ function applyLoaded(data: WheelData): void {
   state.mode = data.mode === 'image' ? 'image' : 'text';
   state.texts = Array.isArray(data.texts) ? data.texts.filter((t) => typeof t === 'string') : [];
   state.images = Array.isArray(data.images)
-    ? data.images.filter((i) => i && typeof i.url === 'string')
+    ? data.images.filter((i) => i && (typeof i.url === 'string' || typeof i.label === 'string'))
     : [];
   state.played = Array.isArray(data.played)
     ? data.played.filter((p) => p && typeof p.label === 'string')

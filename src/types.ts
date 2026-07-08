@@ -1,7 +1,8 @@
 export type Mode = 'text' | 'image';
 
 export interface ImageEntry {
-  url: string;
+  /** Absent = a plain text-only sector added inside the image wheel. */
+  url?: string;
   label?: string;
 }
 
