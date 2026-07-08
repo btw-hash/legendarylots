@@ -22,10 +22,7 @@ Simple, mostly static web app — a "крутилка" for giveaways/streams. MV
 - **REQ-3 — Text mode.** Alternative input: one line = one sector (like spinthewheel.io). Auto-colored sectors, readable font. User can switch between Image mode and Text mode.
 - **REQ-4 — Spin.** A spin button (and a large touch target on tablet) rotates the wheel with smooth easing/deceleration and a fixed pointer. On stop: highlight the winning sector + a centered winner popup.
 - **REQ-5 — LegendaryLots branding.** Logo placed on the page (header/corner). Brand accent colors on the wheel/UI.
-- **REQ-6 — Cross-device portability (the key flow).** Set a wheel up on PC → use it on tablet. MVP delivers this WITHOUT a backend via:
-  - localStorage persistence (wheel survives reload on the same device), AND
-  - **Export / Import** of the whole wheel as a single file (`.json` with images embedded as base64, or a `.zip`), so the PC setup can be carried to the tablet manually.
-  - Real cloud sync (save on PC → open by code on tablet, no manual file) is a **v2 option** (see SVC-CLOUD), not MVP.
+- **REQ-6 — Cross-device portability (the key flow).** Set a wheel up on PC → use it on tablet. **Shipped in MVP as server save-by-code** (owner's forwarded chat pinned "нажал сохранить и открыл на айпаде" as a hard requirement): "Зберегти" → 8-char code + `/w/:id` link; open on the tablet by URL or by typing the code. Images upload to the server on add (webp, downscaled), so the wheel is fully portable. localStorage keeps an autosaved draft on the editing device.
 - **REQ-7 — Tablet ergonomics.** Touch-friendly spin (tap/swipe to spin), large controls, layout works on iPad-sized screens.
 
 ---
@@ -83,12 +80,14 @@ Explicitly deferred per owner ("в целом пока это всё, прост
 
 ---
 
-## Open decisions (for the builder to confirm before TASK-1)
+## Decisions taken (2026-07-08, at build time)
 
-1. **Cross-device on day one:** MVP ships Export/Import file transfer only (REQ-6). Confirm that's enough, or promote SVC-CLOUD into MVP.
-2. **Stack:** vanilla Vite+TS vs React — builder's call; vanilla is lighter for a single-page tool.
-3. **Wheel tech:** canvas (better for many images + physics) vs SVG (crisper, easier hover hit-testing). Recommend canvas for the wheel + an HTML overlay for the hover preview.
-4. **Assets:** need the actual LegendaryLots logo file + brand colors.
+1. **Cross-device on day one:** promoted server save-by-code into MVP — the forwarded chat made "save on PC → open on iPad" a hard requirement, and a file-export flow doesn't survive that UX. Wheels are JSON files on disk, images deduped by content hash; no DB.
+2. **Stack:** vanilla Vite+TS + Express (`server/index.ts`). No framework.
+3. **Wheel tech:** canvas, whole rotating part baked to an offscreen bitmap (rotate-only frames); HTML overlay for the hover preview.
+4. **Assets:** brand PNGs from the owner (`specs/`) → `public/logo.png` (hub + favicon + header). Skin derived from the logo: wood `#2E1A0C`, gold `#E0A82E`, felt `#1B57A6`; Forum + Alegreya Sans (cyrillic bundled).
+5. **PC + tablet only** (owner: "моб респонсив не нужен"): drawer settings panel under 1100px, tap-to-spin, long-press preview.
+6. **Radial labels invert on the left half at rest** — genre norm (spinthewheel.io behaves the same); deliberately not "fixed" since the wheel stops at arbitrary angles.
 
 ---
 
