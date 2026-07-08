@@ -46,10 +46,8 @@ export class Wheel {
   private gavelPivot = { x: 0, y: 0 };
   private feltColor = '#1B57A6';
   private strikeStart = -1;
-  private strikeBig = false;
   private impactFired = false;
   private shockAt = -1e9;
-  private gavelScale = 1;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -123,8 +121,7 @@ export class Wheel {
       const dur = 4600 + Math.random() * 1800;
       const t0 = performance.now();
       this.lastIdx = this.pointerIndex();
-      this.triggerStrike(false);
-      let nextStrike = t0 + 430;
+      this.triggerStrike(); // one knock when Spin is pressed — the wheel takes it from there
 
       const step = (now: number) => {
         const t = Math.min(1, (now - t0) / dur);
@@ -135,17 +132,11 @@ export class Wheel {
           this.wobbleAt = now;
           tick();
         }
-        // Rhythmic banging while the wheel is still turning fast enough.
-        if (now >= nextStrike && t < 0.94) {
-          this.triggerStrike(false);
-          nextStrike = now + 430;
-        }
         this.render(now);
         if (t < 1) {
           this.raf = requestAnimationFrame(step);
         } else {
           this.spinning = false;
-          this.triggerStrike(true); // final decisive slam = verdict
           this.render(now);
           resolve(this.pointerIndex());
         }
@@ -362,7 +353,7 @@ export class Wheel {
     if (this.strikeStart >= 0 && !this.impactFired && now - this.strikeStart >= RAISE) {
       this.impactFired = true;
       this.shockAt = now;
-      gavelBang(this.strikeBig ? 1.4 : 0.75);
+      gavelBang(1);
     }
 
     this.drawHub(ctx, c, R, now);
@@ -431,10 +422,9 @@ export class Wheel {
     }
     ctx.restore();
 
-    // Animated gavel on top of the felt.
+    // Animated gavel on top of the felt (sized to match the emblem's own gavel).
     if (this.gavelSprite) {
-      this.gavelScale += ((this.spinning ? 1.16 : 1) - this.gavelScale) * 0.2;
-      const drawW = hubR * 1.55 * this.gavelScale;
+      const drawW = hubR * 1.12;
       const s = drawW / this.gavelSize;
       const ang = this.gavelAngle(now);
       const cxp = c + (this.gavelPivot.x - this.gavelSize / 2) * s;
@@ -480,9 +470,8 @@ export class Wheel {
 
   // ── Gavel ──────────────────────────────────────────────────────────────
 
-  private triggerStrike(big: boolean): void {
+  private triggerStrike(): void {
     this.strikeStart = performance.now();
-    this.strikeBig = big;
     this.impactFired = false;
   }
 
@@ -490,7 +479,7 @@ export class Wheel {
   private gavelAngle(now: number): number {
     if (this.strikeStart < 0) return 0;
     const t = now - this.strikeStart;
-    const raiseAng = this.strikeBig ? -1.05 : -0.6;
+    const raiseAng = -0.7;
     const slamAng = 0.14;
     if (t < RAISE) return raiseAng * easeOut(t / RAISE);
     if (t < RAISE + SLAM) return raiseAng + (slamAng - raiseAng) * easeIn((t - RAISE) / SLAM);

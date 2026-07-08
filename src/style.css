@@ -450,6 +450,19 @@ body {
   min-height: 0;
 }
 
+.played-group-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  padding: 4px 2px 1px;
+  border-bottom: 1px solid var(--wood-line);
+}
+
+.played-group-head:not(:first-child) {
+  margin-top: 4px;
+}
+
 .played-item {
   display: flex;
   align-items: center;

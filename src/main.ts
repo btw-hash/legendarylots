@@ -182,7 +182,26 @@ function renderPlayed(): void {
   $('#played-count').textContent = `(${state.played.length})`;
   const list = $('#played-list');
   list.innerHTML = '';
-  state.played.forEach((p, i) => {
+
+  // Keep original indices so return still targets the right entry.
+  const indexed = state.played.map((p, i) => ({ p, i }));
+  const images = indexed.filter((x) => x.p.imageUrl);
+  const texts = indexed.filter((x) => !x.p.imageUrl);
+  if (images.length) addPlayedGroup(list, 'Зображення', images);
+  if (texts.length) addPlayedGroup(list, 'Текст', texts);
+}
+
+function addPlayedGroup(
+  list: HTMLElement,
+  title: string,
+  items: { p: WheelData['played'][number]; i: number }[]
+): void {
+  const head = document.createElement('div');
+  head.className = 'played-group-head';
+  head.textContent = `${title} · ${items.length}`;
+  list.appendChild(head);
+
+  items.forEach(({ p, i }) => {
     const row = document.createElement('div');
     row.className = 'played-item';
     if (p.imageUrl) {
@@ -193,7 +212,7 @@ function renderPlayed(): void {
     }
     const label = document.createElement('span');
     label.className = 'played-label';
-    label.textContent = p.label || (p.imageUrl ? `Лот ${i + 1}` : '—');
+    label.textContent = p.label || '—';
     row.appendChild(label);
 
     const back = document.createElement('button');
