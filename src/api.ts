@@ -3,7 +3,7 @@ import type { WheelData } from './types';
 export async function saveWheel(
   wheel: WheelData,
   editToken?: string
-): Promise<{ id: string; editToken: string }> {
+): Promise<{ id: string; editToken: string; rev: number }> {
   const res = await fetch('/api/wheels', {
     method: 'POST',
     headers: {
@@ -14,7 +14,7 @@ export async function saveWheel(
   });
   if (res.status === 403) throw new Error('forbidden');
   if (!res.ok) throw new Error(`save failed: ${res.status}`);
-  return (await res.json()) as { id: string; editToken: string };
+  return (await res.json()) as { id: string; editToken: string; rev: number };
 }
 
 export interface WheelSummary {

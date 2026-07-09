@@ -303,6 +303,73 @@ body {
   box-shadow: 0 0 0 3px rgba(224, 168, 46, 0.12);
 }
 
+.wheel-name {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--wood-line);
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--text);
+  font-family: 'Forum', serif;
+  font-size: 18px;
+  letter-spacing: 0.02em;
+}
+
+.wheel-name:focus {
+  outline: none;
+  border-color: var(--gold-lo);
+  box-shadow: 0 0 0 3px rgba(224, 168, 46, 0.12);
+}
+
+.wheel-name::placeholder {
+  color: var(--text-dim);
+}
+
+/* Removable chips — one per text sector, a per-variant ✕ under the textarea. */
+.text-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.text-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--wood-line);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.text-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.text-chip-del {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.text-chip-del:hover {
+  background: var(--danger, #b5432e);
+  color: #fff;
+}
+
 .hint {
   font-size: 13px;
   color: var(--text-dim);
