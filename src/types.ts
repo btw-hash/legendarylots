@@ -18,6 +18,8 @@ export interface WheelData {
   pending?: PendingEntry[];
   /** GET-only: whether the wheel has an owner (edit token) → others are read-only. */
   protected?: boolean;
+  /** Server-maintained monotonic revision — devices poll it to pull changes. */
+  rev?: number;
 }
 
 export interface PendingEntry {

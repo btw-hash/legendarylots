@@ -90,12 +90,39 @@ function currentSectors(): Sector[] {
   }));
 }
 
-/** Full rebuild: wheel + thumbs + hints + played + autosave. */
+/** Full rebuild: wheel + thumbs + text chips + hints + played. */
 function rebuild(): void {
   applyWheel();
   renderThumbs();
+  renderTextChips();
   renderPlayed();
   $('#btn-clear-images').classList.toggle('hidden', state.images.length === 0);
+}
+
+/** Removable chips for each text sector — a per-variant ✕ next to the textarea. */
+function renderTextChips(): void {
+  const box = $('#text-chips');
+  box.innerHTML = '';
+  if (state.mode !== 'text' || state.texts.length === 0) return;
+  state.texts.forEach((t, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'text-chip';
+    const label = document.createElement('span');
+    label.className = 'text-chip-label';
+    label.textContent = t;
+    const del = document.createElement('button');
+    del.className = 'text-chip-del';
+    del.textContent = '✕';
+    del.title = 'Прибрати';
+    del.addEventListener('click', () => {
+      state.texts.splice(i, 1);
+      textInput.value = state.texts.join('\n');
+      markDirty();
+      rebuild();
+    });
+    chip.append(label, del);
+    box.appendChild(chip);
+  });
 }
 
 /** Wheel + hints only — used while typing a caption so thumb inputs keep focus. */
@@ -111,9 +138,35 @@ function applyWheel(): void {
     'зображення',
     'зображень'
   );
-  saveDraft(); // local draft only — server save is manual (the Зберегти button)
+  saveDraft(); // local draft (offline resilience); the server copy is kept via autosave
   refreshSavePill();
 }
+
+/* ── Autosave + cross-device sync ──
+   Every user change marks the state dirty and schedules a save; the poll on the
+   other device pulls it via the wheel's server `rev`. `dirty` also blocks the
+   poll from overwriting local edits mid-change. ── */
+let lastRev = 0; // highest server revision this device has seen/written
+function markDirty(): void {
+  dirty = true;
+  scheduleSave();
+}
+
+/* ── Wheel name: editable, defaults to "Колесо N" (per-device counter) ── */
+const nameInput = $('#wheel-name') as HTMLInputElement;
+function nextWheelName(): string {
+  const n = Number(localStorage.getItem('ll-wheel-seq') || '0') + 1;
+  localStorage.setItem('ll-wheel-seq', String(n));
+  return `Колесо ${n}`;
+}
+function ensureName(): void {
+  if (!state.name) state.name = nextWheelName();
+  nameInput.value = state.name;
+}
+nameInput.addEventListener('input', () => {
+  state.name = nameInput.value;
+  markDirty();
+});
 
 function plural(n: number, one: string, few: string, many: string): string {
   const m10 = n % 10;
@@ -130,7 +183,7 @@ document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
     const mode = tab.dataset.mode as WheelData['mode'];
     if (mode === state.mode) return;
     state.mode = mode;
-    dirty = true;
+    markDirty();
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
     $('#pane-text').classList.toggle('hidden', mode !== 'text');
     $('#pane-image').classList.toggle('hidden', mode !== 'image');
@@ -149,8 +202,10 @@ textInput.addEventListener('input', () => {
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
-    dirty = true;
+    if (state.texts.length) ensureName();
+    markDirty();
     applyWheel();
+    renderTextChips();
   }, 180);
 });
 
@@ -185,7 +240,8 @@ async function addFiles(files: FileList): Promise<void> {
     if (r.status === 'fulfilled') state.images.push({ url: r.value });
     else failed++;
   }
-  dirty = true;
+  if (state.images.length) ensureName();
+  markDirty();
   toast(failed ? `⚠️ ${failed} не завантажилось` : 'Готово!');
   rebuild();
 }
@@ -214,7 +270,7 @@ function renderThumbs(): void {
     del.title = 'Прибрати';
     del.addEventListener('click', () => {
       state.images.splice(i, 1);
-      dirty = true;
+      markDirty();
       rebuild();
     });
 
@@ -226,7 +282,7 @@ function renderThumbs(): void {
     let capDebounce = 0;
     cap.addEventListener('input', () => {
       state.images[i].label = cap.value.trim() || undefined;
-      dirty = true;
+      markDirty();
       clearTimeout(capDebounce);
       capDebounce = window.setTimeout(applyWheel, 220); // keep input focus (no thumb re-render)
     });
@@ -238,20 +294,20 @@ function renderThumbs(): void {
 
 $('#btn-clear-images').addEventListener('click', () => {
   state.images = [];
-  dirty = true;
+  markDirty();
   rebuild();
 });
 
 $('#btn-clear-text').addEventListener('click', () => {
   state.texts = [];
   textInput.value = '';
-  dirty = true;
+  markDirty();
   rebuild();
 });
 
 $('#btn-add-text-sector').addEventListener('click', () => {
   state.images.push({}); // empty text sector; user types its caption
-  dirty = true;
+  markDirty();
   rebuild();
   const inputs = document.querySelectorAll<HTMLInputElement>('.thumb-caption');
   inputs[inputs.length - 1]?.focus();
@@ -319,7 +375,7 @@ function returnPlayed(i: number): void {
   state.played.splice(i, 1);
   restoreEntry(p);
   if (state.mode === 'text') textInput.value = state.texts.join('\n');
-  dirty = true;
+  markDirty();
   rebuild();
 }
 
@@ -329,7 +385,7 @@ $('#btn-return-all').addEventListener('click', () => {
   state.played = state.played.filter((p) => !returning.includes(p));
   for (const p of returning) restoreEntry(p);
   if (state.mode === 'text') textInput.value = state.texts.join('\n');
-  dirty = true;
+  markDirty();
   rebuild();
 });
 
@@ -404,7 +460,7 @@ $('#btn-remove-winner').addEventListener('click', () => {
     state.images.splice(winnerIdx, 1);
   }
   winnerIdx = -1;
-  dirty = true;
+  markDirty();
   closeWinner();
   rebuild();
 });
@@ -467,14 +523,16 @@ wheelCanvas.addEventListener('touchend', () => {
   setTimeout(hidePreview, 1400);
 });
 
-/* ── Save (manual only — the Зберегти button; nothing hits the server until then) ── */
+/* ── Autosave: changes flush to the server ~1s after they stop; nothing is typed
+   or pressed by hand. The other device pulls them via the poll. ── */
 
 const savePill = $('#save-pill');
 let saveTimer = 0;
 let saving = false;
 
 function scheduleSave(): void {
-  if (wheel.count < 1 && state.played.length === 0) return; // nothing worth a code yet
+  if (readOnly) return; // can't save a wheel we don't own
+  if (wheel.count < 1 && state.played.length === 0) return; // nothing worth saving yet
   clearTimeout(saveTimer);
   setSaveState('pending');
   saveTimer = window.setTimeout(doAutoSave, 900);
@@ -487,15 +545,22 @@ async function doAutoSave(): Promise<void> {
   }
   saving = true;
   setSaveState('saving');
+  const wasNew = !state.id; // a brand-new wheel is about to get its first id
   try {
-    const { id, editToken } = await saveWheel(state, tokenFor(state.id));
+    const { id, editToken, rev } = await saveWheel(state, tokenFor(state.id));
     state.id = id;
+    lastRev = rev; // our own write — don't let the poll pull it back
     rememberToken(id, editToken); // this device now owns edit rights
     savedToServer = true;
     rememberWheel(id);
     if (!location.pathname.endsWith(`/w/${id}`)) history.replaceState(null, '', `/w/${id}`);
-    dirty = false; // saved → no unsaved changes (also re-enables the guest poll)
+    dirty = false; // saved → no unsaved changes (also re-enables the poll pull)
     refreshSavePill();
+    // Item: a freshly-created wheel should show up in an open "Мої прокрути" list
+    // without needing to collapse/expand it.
+    if (wasNew && !myWheelsBox.classList.contains('hidden')) {
+      renderMyWheels(await loadMyWheels());
+    }
   } catch (e) {
     setSaveState('error');
     if (e instanceof Error && e.message === 'forbidden') {
@@ -513,7 +578,7 @@ function setSaveState(s: 'pending' | 'saving' | 'saved' | 'error'): void {
 savePill.addEventListener('click', () => {
   if (!state.id) return;
   if (!savedToServer) {
-    toast('Спершу натисни «Зберегти»');
+    toast('Зачекай — колесо ще зберігається');
     return;
   }
   // The owner's link carries the secret edit token (open it on any of your devices).
@@ -524,17 +589,6 @@ savePill.addEventListener('click', () => {
   void navigator.clipboard
     .writeText(link)
     .then(() => toast('Посилання для редагування скопійовано (не показуй глядачам)'));
-});
-
-// Explicit Save — persist now, mint the wheel's link, list it in "Мої прокрути".
-$('#btn-save').addEventListener('click', async () => {
-  if (wheel.count < 1) {
-    toast('Колесо порожнє — додай варіанти');
-    return;
-  }
-  clearTimeout(saveTimer);
-  await doAutoSave();
-  toast(state.id ? `Збережено ✓ (${state.id})` : 'Збережено ✓');
 });
 
 /* ── My wheels: pick one of this device's saved wheels ── */
@@ -630,6 +684,8 @@ function escapeHtml(s: string): string {
 function applyLoaded(data: WheelData, fromServer = true): void {
   state.id = data.id;
   state.name = data.name ?? '';
+  nameInput.value = state.name;
+  if (typeof data.rev === 'number') lastRev = data.rev;
   state.mode = data.mode === 'image' ? 'image' : 'text';
   state.texts = Array.isArray(data.texts) ? data.texts.filter((t) => typeof t === 'string') : [];
   state.images = Array.isArray(data.images)
@@ -704,6 +760,9 @@ $('#btn-new').addEventListener('click', () => {
   state.played = [];
   state.mode = 'text';
   textInput.value = '';
+  lastRev = 0;
+  readOnly = false;
+  document.body.classList.remove('readonly');
   document
     .querySelectorAll<HTMLButtonElement>('.tab')
     .forEach((t) => t.classList.toggle('active', t.dataset.mode === 'text'));
@@ -714,7 +773,8 @@ $('#btn-new').addEventListener('click', () => {
   localStorage.removeItem('ll-draft');
   history.replaceState(null, '', '/');
   dirty = false;
-  rebuild(); // stays local until Зберегти, which mints the wheel's link
+  ensureName(); // fresh "Колесо N"
+  rebuild(); // stays local until the first content autosaves and mints the link
   toast('Нове колесо');
 });
 
@@ -809,17 +869,41 @@ function enterGuestMode(): void {
 
 /* ── Host moderation: guest submissions arrive as a popup to approve/reject ── */
 
-function startGuestPoll(): void {
-  if (isGuest) return; // guests don't moderate
+function startOwnerPoll(): void {
+  if (isGuest) return; // guests don't moderate or sync
   setInterval(() => {
-    if (readOnly || !state.id || !savedToServer || saving || wheel.isSpinning) return;
-    if (!$('#mod-modal').classList.contains('hidden')) return; // a decision is already open
-    if (!$('#winner-modal').classList.contains('hidden')) return;
+    if (!state.id || !savedToServer) return;
     void loadWheel(state.id).then((data) => {
-      const pending = data?.pending ?? [];
-      if (pending.length) showModeration(pending[0]);
+      if (!data) return;
+      const modalsClosed =
+        $('#mod-modal').classList.contains('hidden') &&
+        $('#winner-modal').classList.contains('hidden');
+      // 1. Pull a newer state made on the OTHER device — but only while this device
+      //    is idle, so we never clobber an in-progress edit or spin.
+      if (
+        typeof data.rev === 'number' &&
+        data.rev > lastRev &&
+        !dirty &&
+        !saving &&
+        !wheel.isSpinning &&
+        modalsClosed
+      ) {
+        const wasReadOnly = readOnly;
+        applyLoaded(data); // sets lastRev, rebuilds the wheel + lists
+        readOnly = wasReadOnly; // applyLoaded may re-enter read-only; keep our status
+      }
+      // 2. Guest submissions waiting for moderation.
+      if (
+        !readOnly &&
+        !saving &&
+        !wheel.isSpinning &&
+        modalsClosed &&
+        (data.pending?.length ?? 0)
+      ) {
+        showModeration(data.pending![0]);
+      }
     });
-  }, 4000);
+  }, 2500);
 }
 
 function showModeration(item: PendingEntry): void {
@@ -852,7 +936,7 @@ function showModeration(item: PendingEntry): void {
         state.texts.push(item.label!);
         textInput.value = state.texts.join('\n');
       }
-      dirty = true;
+      markDirty();
       rebuild();
     }
     if (state.id) await resolvePending(state.id, item.pid, tokenFor(state.id));
@@ -911,17 +995,19 @@ async function boot(): Promise<void> {
         void loadWheel(state.id)
           .then((d) => {
             savedToServer = !!d;
+            if (d && typeof d.rev === 'number') lastRev = d.rev;
             refreshSavePill();
           })
           .catch(() => {});
       }
     }
   }
+  if (!isGuest && !readOnly) ensureName(); // every editable wheel gets a name (default "Колесо N")
   rebuild();
   void document.fonts.ready.then(() => applyWheel());
 
   if (isGuest) enterGuestMode();
-  startGuestPoll();
+  startOwnerPoll();
 }
 
 void boot();

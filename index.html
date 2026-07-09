@@ -28,6 +28,15 @@
 
     <main class="layout">
       <aside class="panel" id="panel">
+        <input
+          id="wheel-name"
+          class="wheel-name"
+          maxlength="60"
+          placeholder="Назва колеса"
+          autocomplete="off"
+          spellcheck="false"
+        />
+
         <div class="tabs" role="tablist">
           <button class="tab active" data-mode="text" role="tab">Текст</button>
           <button class="tab" data-mode="image" role="tab">Зображення</button>
@@ -39,6 +48,7 @@
             placeholder="Один рядок — один сектор&#10;&#10;Наприклад:&#10;Скін AK-47&#10;500 голди&#10;Реролл"
             spellcheck="false"
           ></textarea>
+          <div id="text-chips" class="text-chips"></div>
           <div class="pane-row">
             <div class="hint" id="text-hint">0 варіантів</div>
             <button id="btn-clear-text" class="btn ghost small hidden">Очистити все</button>
@@ -68,7 +78,6 @@
         </section>
 
         <footer class="panel-foot">
-          <button id="btn-save" class="btn gold full">💾 Зберегти прокрут</button>
           <button id="btn-my-wheels" class="btn ghost small full">🎡 Мої прокрути</button>
           <div id="my-wheels" class="my-wheels hidden"></div>
         </footer>

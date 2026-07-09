@@ -101,7 +101,7 @@ function sanitizeWheel(w: {
   }));
 }
 
-app.post('/api/wheels', rateLimit(60, 60_000), async (req, res) => {
+app.post('/api/wheels', rateLimit(120, 60_000), async (req, res) => {
   const wheel = req.body;
   if (
     !wheel ||
@@ -122,7 +122,7 @@ app.post('/api/wheels', rateLimit(60, 60_000), async (req, res) => {
   // overwriting an EXISTING wheel needs its secret editToken, held only by the
   // owner. A brand-new id (no file yet) is free to create and mints its own token.
   const fileExists = existsSync(wheelPath(id));
-  let existing: { editToken?: string; pending?: unknown } | null = null;
+  let existing: { editToken?: string; pending?: unknown; rev?: number } | null = null;
   if (fileExists) {
     try {
       existing = JSON.parse(await readFile(wheelPath(id), 'utf8'));
@@ -140,10 +140,12 @@ app.post('/api/wheels', rateLimit(60, 60_000), async (req, res) => {
   wheel.editToken = existing?.editToken ?? randomUUID().replace(/-/g, '');
   wheel.id = id;
   wheel.savedAt = new Date().toISOString();
+  // Monotonic revision — the other device polls this to know when to pull changes.
+  wheel.rev = (typeof existing?.rev === 'number' ? existing.rev : 0) + 1;
   // A host full-save must not wipe the guest pending queue (managed separately).
   if (wheel.pending === undefined) wheel.pending = existing?.pending ?? [];
   await writeFile(wheelPath(id), JSON.stringify(wheel));
-  res.json({ id, editToken: wheel.editToken });
+  res.json({ id, editToken: wheel.editToken, rev: wheel.rev });
 });
 
 // NOTE: there is deliberately NO "list all wheels" endpoint. Codes are secrets
