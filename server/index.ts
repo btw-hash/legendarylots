@@ -143,13 +143,26 @@ async function sweepOrphanImages(): Promise<void> {
     const referenced = new Set<string>();
     for (const f of await readdir(WHEELS)) {
       if (!f.endsWith('.json')) continue;
+      let w: {
+        images?: { url?: string }[];
+        played?: { imageUrl?: string }[];
+      };
       try {
-        const w = JSON.parse(await readFile(path.join(WHEELS, f), 'utf8'));
-        for (const e of w.images ?? []) {
-          if (typeof e?.url === 'string' && e.url.startsWith('/i/')) referenced.add(e.url.slice(3));
-        }
+        w = JSON.parse(await readFile(path.join(WHEELS, f), 'utf8'));
       } catch {
-        /* skip */
+        // Safety: if ANY wheel is unreadable, abort — never risk deleting an
+        // image that a temporarily-unreadable wheel actually references.
+        console.log(`[cleanup] aborted: unreadable wheel ${f}`);
+        return;
+      }
+      for (const e of w.images ?? []) {
+        if (typeof e?.url === 'string' && e.url.startsWith('/i/')) referenced.add(e.url.slice(3));
+      }
+      // Images moved to the "played" window are still in use — must be kept.
+      for (const p of w.played ?? []) {
+        if (typeof p?.imageUrl === 'string' && p.imageUrl.startsWith('/i/')) {
+          referenced.add(p.imageUrl.slice(3));
+        }
       }
     }
     const now = Date.now();
@@ -157,7 +170,7 @@ async function sweepOrphanImages(): Promise<void> {
     for (const f of await readdir(IMAGES)) {
       if (referenced.has(f)) continue;
       const st = await stat(path.join(IMAGES, f)).catch(() => null);
-      if (!st || now - st.mtimeMs < 3_600_000) continue;
+      if (!st || now - st.mtimeMs < 7 * 24 * 3_600_000) continue; // 7-day grace
       await unlink(path.join(IMAGES, f)).catch(() => {});
       removed++;
     }
@@ -166,7 +179,7 @@ async function sweepOrphanImages(): Promise<void> {
     console.log('[cleanup] failed', e);
   }
 }
-setTimeout(() => void sweepOrphanImages(), 60_000);
-setInterval(() => void sweepOrphanImages(), 6 * 3_600_000);
+setTimeout(() => void sweepOrphanImages(), 5 * 60_000);
+setInterval(() => void sweepOrphanImages(), 12 * 3_600_000);
 
 app.listen(PORT, () => console.log(`LegendaryLots wheel on http://localhost:${PORT}`));

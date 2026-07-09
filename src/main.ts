@@ -720,25 +720,26 @@ async function refreshFromServer(): Promise<void> {
   if (data) applyLoaded(data);
 }
 
-let lastSeenSavedAt = '';
 function startGuestPoll(): void {
   setInterval(() => {
     if (!state.id || dirty || saving || wheel.isSpinning) return;
     if (!$('#winner-modal').classList.contains('hidden')) return;
     if (!$('#guest-modal').classList.contains('hidden')) return;
     void loadWheel(state.id).then((data) => {
-      if (!data) return;
-      const stamp = (data as WheelData & { savedAt?: string }).savedAt ?? '';
-      const serverCount = data.mode === 'image' ? data.images.length : data.texts.length;
-      const localCount = state.mode === 'image' ? state.images.length : state.texts.length;
-      // Only refresh when the server genuinely moved ahead (a guest added).
-      if (stamp !== lastSeenSavedAt && serverCount > localCount) {
-        lastSeenSavedAt = stamp;
-        applyLoaded(data);
-        if (!isGuest) toast('Додано новий гостьовий варіант');
-      } else {
-        lastSeenSavedAt = stamp;
+      // Never flip the owner's mode/view or touch the other list — only APPEND
+      // genuinely-new guest entries to the current tab. This can't hide images.
+      if (!data || data.mode !== state.mode) return;
+      const serverList = state.mode === 'image' ? data.images : data.texts;
+      const localList = state.mode === 'image' ? state.images : state.texts;
+      if (!Array.isArray(serverList) || serverList.length <= localList.length) return;
+      const extra = serverList.slice(localList.length);
+      if (state.mode === 'image') state.images.push(...(extra as WheelData['images']));
+      else {
+        state.texts.push(...(extra as string[]));
+        textInput.value = state.texts.join('\n');
       }
+      rebuild();
+      if (!isGuest) toast('Додано новий гостьовий варіант');
     });
   }, 5000);
 }
