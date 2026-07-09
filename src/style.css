@@ -237,6 +237,8 @@ body {
   gap: 14px;
   margin: 18px 0 18px 18px;
   padding: 16px;
+  min-height: 0;
+  overflow-y: auto; /* whole panel scrolls — variants never get squeezed to 0 height */
   border: 1px solid var(--wood-line);
   border-radius: var(--radius);
   background: linear-gradient(180deg, var(--wood-800), var(--wood-900));
@@ -275,16 +277,15 @@ body {
 }
 
 .pane {
-  flex: 1;
+  flex: 0 0 auto; /* content height; the panel scrolls, panes don't fight for space */
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
 }
 
 #text-input {
-  flex: 1;
-  min-height: 200px;
+  min-height: 220px;
+  resize: vertical;
   resize: none;
   padding: 12px;
   border-radius: 10px;
@@ -343,8 +344,6 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
   gap: 8px;
-  overflow-y: auto;
-  min-height: 0;
 }
 
 .thumb {
@@ -435,7 +434,7 @@ body {
   gap: 6px;
   border-top: 1px solid var(--wood-line);
   padding-top: 12px;
-  max-height: 34%;
+  flex: 0 0 auto;
 }
 
 .played-head {
@@ -460,8 +459,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  max-height: 260px;
   overflow-y: auto;
-  min-height: 0;
 }
 
 .played-item {
@@ -861,6 +860,69 @@ body:has(.panel.open) .panel-toggle {
 
 .hidden {
   display: none !important;
+}
+
+/* ── Guest mode: viewers only see the wheel + one "add your variant" action ── */
+
+body.guest .panel,
+body.guest .panel-toggle,
+body.guest #btn-spin,
+body.guest #btn-new,
+body.guest #btn-guest-link,
+body.guest #btn-save,
+body.guest #save-pill {
+  display: none !important;
+}
+
+body.guest .arena {
+  padding-bottom: 90px;
+}
+
+.guest-add {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  font-size: 20px;
+  padding: 14px 32px;
+  box-shadow:
+    0 1px 0 rgba(255, 240, 180, 0.7) inset,
+    0 6px 22px rgba(0, 0, 0, 0.55);
+}
+
+.guest-card {
+  gap: 16px;
+  padding: 28px;
+}
+
+.guest-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--wood-line);
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--text);
+  font-family: 'Alegreya Sans', sans-serif;
+  font-size: 18px;
+  text-align: center;
+}
+
+.guest-input:focus {
+  outline: none;
+  border-color: var(--gold-lo);
+  box-shadow: 0 0 0 3px rgba(224, 168, 46, 0.12);
+}
+
+.guest-msg {
+  font-size: 13px;
+  color: #e0a82e;
+  min-height: 16px;
+  text-align: center;
+}
+
+.guest-msg:empty {
+  min-height: 0;
 }
 
 /* ── Tablet (portrait & narrow landscape) ── */

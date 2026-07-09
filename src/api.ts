@@ -29,6 +29,16 @@ export async function deleteWheel(id: string): Promise<void> {
   await fetch(`/api/wheels/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+/** Guest contribution — append one entry to a wheel. Returns false if full/failed. */
+export async function addEntry(id: string, label: string): Promise<boolean> {
+  const res = await fetch(`/api/wheels/${encodeURIComponent(id)}/entry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label }),
+  });
+  return res.ok;
+}
+
 export async function loadWheel(id: string): Promise<WheelData | null> {
   const res = await fetch(`/api/wheels/${encodeURIComponent(id)}`);
   if (res.status === 404) return null;

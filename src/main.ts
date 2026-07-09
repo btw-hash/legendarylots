@@ -5,7 +5,7 @@ import './style.css';
 
 import type { Sector, WheelData } from './types';
 import { Wheel, PALETTE } from './wheel';
-import { saveWheel, loadWheel, uploadImage, listWheels, deleteWheel } from './api';
+import { saveWheel, loadWheel, uploadImage, listWheels, deleteWheel, addEntry } from './api';
 import type { WheelSummary } from './api';
 import { winFanfare, toggleMute, isMuted } from './audio';
 import { burstConfetti } from './confetti';
@@ -15,6 +15,26 @@ const $ = <T extends HTMLElement>(sel: string): T => document.querySelector(sel)
 const state: WheelData = { name: '', mode: 'text', texts: [], images: [], played: [] };
 let winnerIdx = -1;
 let dirty = false; // only auto-save after a real user edit
+const isGuest = new URLSearchParams(location.search).get('guest') === '1';
+
+/* ── My wheels are tracked per-device (localStorage), not a global pool ── */
+
+function myWheelIds(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem('ll-mine') || '[]') as string[];
+  } catch {
+    return [];
+  }
+}
+
+function rememberWheel(id: string): void {
+  const ids = [id, ...myWheelIds().filter((x) => x !== id)].slice(0, 60);
+  localStorage.setItem('ll-mine', JSON.stringify(ids));
+}
+
+function forgetWheel(id: string): void {
+  localStorage.setItem('ll-mine', JSON.stringify(myWheelIds().filter((x) => x !== id)));
+}
 
 const wheel = new Wheel($('#wheel') as unknown as HTMLCanvasElement);
 
@@ -431,10 +451,12 @@ async function doAutoSave(): Promise<void> {
   try {
     const id = await saveWheel(state);
     state.id = id;
+    rememberWheel(id);
     if (!location.pathname.endsWith(`/w/${id}`)) history.replaceState(null, '', `/w/${id}`);
     savePill.querySelector('.save-pill-code')!.textContent = id;
     savePill.classList.remove('hidden');
     setSaveState('saved');
+    dirty = false; // saved → no unsaved changes (also re-enables the guest poll)
   } catch {
     setSaveState('error');
   } finally {
@@ -473,7 +495,10 @@ $('#btn-my-wheels').addEventListener('click', async () => {
   }
   myWheelsBox.innerHTML = '<div class="mw-empty">Завантаження…</div>';
   myWheelsBox.classList.remove('hidden');
-  const wheels = await listWheels().catch(() => [] as WheelSummary[]);
+  const mine = new Set(myWheelIds());
+  const wheels = (await listWheels().catch(() => [] as WheelSummary[]))
+    .filter((w) => mine.has(w.id) && w.count > 0) // only my wheels, skip empty
+    .sort((a, b) => myWheelIds().indexOf(a.id) - myWheelIds().indexOf(b.id));
   renderMyWheels(wheels);
 });
 
@@ -512,7 +537,11 @@ function renderMyWheels(wheels: WheelSummary[]): void {
     del.addEventListener('click', async (e) => {
       e.stopPropagation();
       await deleteWheel(w.id);
-      renderMyWheels(await listWheels().catch(() => []));
+      forgetWheel(w.id);
+      const mine = new Set(myWheelIds());
+      renderMyWheels(
+        (await listWheels().catch(() => [])).filter((x) => mine.has(x.id) && x.count > 0)
+      );
     });
 
     row.append(main, del);
@@ -543,6 +572,7 @@ async function openByCode(): Promise<void> {
     return;
   }
   applyLoaded(data);
+  if (data.id) rememberWheel(data.id);
   history.replaceState(null, '', `/w/${data.id}`);
   toast('Колесо відкрито');
 }
@@ -608,6 +638,111 @@ document.addEventListener('click', (e) => {
   }
 });
 
+/* ── New wheel ── */
+
+$('#btn-new').addEventListener('click', () => {
+  state.id = undefined;
+  state.name = '';
+  state.texts = [];
+  state.images = [];
+  state.played = [];
+  state.mode = 'text';
+  textInput.value = '';
+  document
+    .querySelectorAll<HTMLButtonElement>('.tab')
+    .forEach((t) => t.classList.toggle('active', t.dataset.mode === 'text'));
+  $('#pane-text').classList.toggle('hidden', false);
+  $('#pane-image').classList.toggle('hidden', true);
+  savePill.classList.add('hidden');
+  localStorage.removeItem('ll-draft');
+  history.replaceState(null, '', '/');
+  dirty = false;
+  rebuild();
+  toast('Нове колесо');
+});
+
+/* ── Guest link (for streamers to share) ── */
+
+$('#btn-guest-link').addEventListener('click', async () => {
+  if (!state.id) {
+    toast('Спершу збережи колесо');
+    return;
+  }
+  const link = `${location.origin}/w/${state.id}?guest=1`;
+  await navigator.clipboard.writeText(link).catch(() => {});
+  toast('Гостьове посилання скопійовано');
+});
+
+/* ── Guest mode: viewers add one variant, nothing else ── */
+
+function enterGuestMode(): void {
+  document.body.classList.add('guest');
+  const addBtn = $('#btn-guest-add');
+  const already = state.id ? localStorage.getItem(`ll-guest-${state.id}`) === '1' : false;
+  addBtn.classList.toggle('hidden', already);
+
+  addBtn.addEventListener('click', () => {
+    $('#guest-modal').classList.remove('hidden');
+    ($('#guest-input') as HTMLInputElement).focus();
+  });
+  $('#btn-guest-cancel').addEventListener('click', () => $('#guest-modal').classList.add('hidden'));
+  document
+    .querySelector('#guest-modal .modal-backdrop')!
+    .addEventListener('click', () => $('#guest-modal').classList.add('hidden'));
+
+  const submit = async () => {
+    const input = $('#guest-input') as HTMLInputElement;
+    const val = input.value.trim();
+    if (!val || !state.id) return;
+    const ok = await addEntry(state.id, val);
+    if (!ok) {
+      $('#guest-msg').textContent = '⚠️ Не вдалося додати (можливо колесо заповнене)';
+      return;
+    }
+    localStorage.setItem(`ll-guest-${state.id}`, '1');
+    $('#guest-modal').classList.add('hidden');
+    addBtn.classList.add('hidden');
+    input.value = '';
+    toast('Дякуємо! Твій варіант додано 🎉');
+    void refreshFromServer(); // show it on the wheel right away
+  };
+  $('#btn-guest-submit').addEventListener('click', () => void submit());
+  ($('#guest-input') as HTMLInputElement).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') void submit();
+  });
+}
+
+/* ── Live refresh: pick up guest contributions (append-only, never clobbers edits) ── */
+
+async function refreshFromServer(): Promise<void> {
+  if (!state.id) return;
+  const data = await loadWheel(state.id).catch(() => null);
+  if (data) applyLoaded(data);
+}
+
+let lastSeenSavedAt = '';
+function startGuestPoll(): void {
+  setInterval(() => {
+    if (!state.id || dirty || saving || wheel.isSpinning) return;
+    if (!$('#winner-modal').classList.contains('hidden')) return;
+    if (!$('#guest-modal').classList.contains('hidden')) return;
+    void loadWheel(state.id).then((data) => {
+      if (!data) return;
+      const stamp = (data as WheelData & { savedAt?: string }).savedAt ?? '';
+      const serverCount = data.mode === 'image' ? data.images.length : data.texts.length;
+      const localCount = state.mode === 'image' ? state.images.length : state.texts.length;
+      // Only refresh when the server genuinely moved ahead (a guest added).
+      if (stamp !== lastSeenSavedAt && serverCount > localCount) {
+        lastSeenSavedAt = stamp;
+        applyLoaded(data);
+        if (!isGuest) toast('Додано новий гостьовий варіант');
+      } else {
+        lastSeenSavedAt = stamp;
+      }
+    });
+  }, 5000);
+}
+
 /* ── Toast ── */
 
 let toastTimer = 0;
@@ -627,16 +762,20 @@ async function boot(): Promise<void> {
     const data = await loadWheel(m[1]).catch(() => null);
     if (data) {
       applyLoaded(data);
+      if (!isGuest) rememberWheel(data.id!);
     } else {
       toast('⚠️ Колесо не знайдено');
       history.replaceState(null, '', '/');
     }
-  } else {
+  } else if (!isGuest) {
     const draft = loadDraft();
     if (draft) applyLoaded(draft);
   }
   rebuild();
   void document.fonts.ready.then(() => applyWheel());
+
+  if (isGuest) enterGuestMode();
+  startGuestPoll();
 }
 
 void boot();

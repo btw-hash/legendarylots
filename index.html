@@ -22,6 +22,8 @@
           <span class="save-pill-code"></span>
           <span class="save-pill-hint">копіювати</span>
         </div>
+        <button id="btn-new" class="btn" title="Почати нове колесо">➕ Нове</button>
+        <button id="btn-guest-link" class="btn" title="Гостьове посилання для глядачів">🔗 Гості</button>
         <button id="btn-save" class="btn gold">Зберегти</button>
       </div>
     </header>
@@ -102,6 +104,22 @@
         <div class="modal-actions">
           <button id="btn-remove-winner" class="btn ghost">Прибрати з колеса →</button>
           <button id="btn-close-winner" class="btn gold">Готово</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Guest contribution (stream viewers) -->
+    <button id="btn-guest-add" class="btn gold guest-add hidden">➕ Додати свій варіант</button>
+
+    <div id="guest-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-card guest-card">
+        <div class="modal-eyebrow">Ваш варіант</div>
+        <input id="guest-input" class="guest-input" maxlength="60" placeholder="Напиши свій варіант…" autocomplete="off" />
+        <div id="guest-msg" class="guest-msg"></div>
+        <div class="modal-actions">
+          <button id="btn-guest-cancel" class="btn ghost">Скасувати</button>
+          <button id="btn-guest-submit" class="btn gold">Додати</button>
         </div>
       </div>
     </div>

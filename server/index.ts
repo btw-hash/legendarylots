@@ -1,7 +1,7 @@
 import express from 'express';
 import { createHash } from 'node:crypto';
 import { mkdirSync, existsSync } from 'node:fs';
-import { readFile, writeFile, readdir, unlink } from 'node:fs/promises';
+import { readFile, writeFile, readdir, unlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { customAlphabet } from 'nanoid';
 
@@ -90,6 +90,32 @@ app.get('/api/wheels/:id', async (req, res) => {
   res.type('json').send(await readFile(wheelPath(id)));
 });
 
+// Guest contribution: append ONE entry to a wheel (stream viewers). Never
+// replaces the wheel — safe to expose to untrusted guests.
+app.post('/api/wheels/:id/entry', async (req, res) => {
+  const { id } = req.params;
+  if (!idOk(id) || !existsSync(wheelPath(id))) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  const label = typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 60) : '';
+  if (!label) {
+    res.status(400).json({ error: 'empty' });
+    return;
+  }
+  const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
+  const list: unknown[] = w.mode === 'image' ? (w.images ??= []) : (w.texts ??= []);
+  if (list.length >= 100) {
+    res.status(409).json({ error: 'full' });
+    return;
+  }
+  if (w.mode === 'image') w.images.push({ label });
+  else w.texts.push(label);
+  w.savedAt = new Date().toISOString();
+  await writeFile(wheelPath(id), JSON.stringify(w));
+  res.json({ ok: true });
+});
+
 app.post('/api/images', express.raw({ type: 'image/*', limit: '8mb' }), async (req, res) => {
   const ext = EXT[req.headers['content-type'] ?? ''];
   if (!ext || !(req.body instanceof Buffer) || req.body.length === 0) {
@@ -108,5 +134,39 @@ const dist = path.join(ROOT, 'dist');
 app.use(express.static(dist));
 // SPA fallback: /w/:id (shared wheel URLs) and anything else → index.html
 app.get(/^\/(w\/.*)?$/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+
+// Periodically delete image files no wheel references any more, so the disk
+// doesn't fill with abandoned uploads. Keeps files younger than 1h (may be
+// mid-creation, not yet saved into a wheel).
+async function sweepOrphanImages(): Promise<void> {
+  try {
+    const referenced = new Set<string>();
+    for (const f of await readdir(WHEELS)) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const w = JSON.parse(await readFile(path.join(WHEELS, f), 'utf8'));
+        for (const e of w.images ?? []) {
+          if (typeof e?.url === 'string' && e.url.startsWith('/i/')) referenced.add(e.url.slice(3));
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    const now = Date.now();
+    let removed = 0;
+    for (const f of await readdir(IMAGES)) {
+      if (referenced.has(f)) continue;
+      const st = await stat(path.join(IMAGES, f)).catch(() => null);
+      if (!st || now - st.mtimeMs < 3_600_000) continue;
+      await unlink(path.join(IMAGES, f)).catch(() => {});
+      removed++;
+    }
+    if (removed) console.log(`[cleanup] removed ${removed} orphan image(s)`);
+  } catch (e) {
+    console.log('[cleanup] failed', e);
+  }
+}
+setTimeout(() => void sweepOrphanImages(), 60_000);
+setInterval(() => void sweepOrphanImages(), 6 * 3_600_000);
 
 app.listen(PORT, () => console.log(`LegendaryLots wheel on http://localhost:${PORT}`));
