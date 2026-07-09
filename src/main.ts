@@ -5,8 +5,17 @@ import './style.css';
 
 import type { Sector, WheelData } from './types';
 import { Wheel, PALETTE } from './wheel';
-import { saveWheel, loadWheel, uploadImage, listWheels, deleteWheel, addEntry } from './api';
+import {
+  saveWheel,
+  loadWheel,
+  uploadImage,
+  listWheels,
+  deleteWheel,
+  submitPending,
+  resolvePending,
+} from './api';
 import type { WheelSummary } from './api';
+import type { PendingEntry } from './types';
 import { winFanfare, toggleMute, isMuted } from './audio';
 import { burstConfetti } from './confetti';
 
@@ -55,15 +64,12 @@ function showSeedPill(): void {
     savePill.classList.add('hidden');
     return;
   }
+  const unsaved = !savedToServer || dirty; // has a code, but current state not on server
   savePill.querySelector('.save-pill-code')!.textContent = state.id;
-  savePill.querySelector('.save-pill-hint')!.textContent = savedToServer
-    ? 'копіювати'
-    : 'не збережено';
-  savePill.dataset.state = savedToServer ? 'saved' : 'pending';
+  savePill.querySelector('.save-pill-hint')!.textContent = unsaved ? 'не збережено' : 'копіювати';
+  savePill.dataset.state = unsaved ? 'pending' : 'saved';
   savePill.classList.remove('hidden');
 }
-
-/* ── My wheels are tracked per-device (localStorage), not a global pool ── */
 
 /* ── My wheels are tracked per-device (localStorage), not a global pool ── */
 
@@ -123,6 +129,7 @@ function applyWheel(): void {
   saveDraft(); // local draft only — server save is manual (the Зберегти button)
   // As soon as there's content, a fresh wheel gets its own code (local until Save).
   if (!state.id && sectors.length >= 1) void ensureSeed();
+  else if (state.id) showSeedPill(); // reflect unsaved edits in the pill
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -714,8 +721,8 @@ $('#btn-new').addEventListener('click', () => {
 /* ── Guest link (for streamers to share) ── */
 
 $('#btn-guest-link').addEventListener('click', async () => {
-  if (!state.id || !savedToServer) {
-    toast('Спершу натисни «Зберегти»');
+  if (!state.id || !savedToServer || dirty) {
+    toast('Спершу збережи колесо (Зберегти)');
     return;
   }
   const link = `${location.origin}/w/${state.id}?guest=1`;
@@ -731,67 +738,128 @@ function enterGuestMode(): void {
   const already = state.id ? localStorage.getItem(`ll-guest-${state.id}`) === '1' : false;
   addBtn.classList.toggle('hidden', already);
 
-  addBtn.addEventListener('click', () => {
+  let pickedImageUrl = ''; // set once the guest's chosen image is uploaded
+  const input = $('#guest-input') as HTMLInputElement;
+  const fileInput = $('#guest-file') as HTMLInputElement;
+
+  const openModal = () => {
+    input.value = '';
+    pickedImageUrl = '';
+    $('#guest-preview').classList.add('hidden');
+    $('#guest-msg').textContent = '';
     $('#guest-modal').classList.remove('hidden');
-    ($('#guest-input') as HTMLInputElement).focus();
+    input.focus();
+  };
+  const closeModal = () => $('#guest-modal').classList.add('hidden');
+
+  addBtn.addEventListener('click', openModal);
+  $('#btn-guest-cancel').addEventListener('click', closeModal);
+  document.querySelector('#guest-modal .modal-backdrop')!.addEventListener('click', closeModal);
+
+  $('#btn-guest-image').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files?.[0];
+    fileInput.value = '';
+    if (!f) return;
+    $('#guest-msg').textContent = 'Завантаження…';
+    try {
+      pickedImageUrl = await uploadImage(f);
+      ($('#guest-preview-img') as HTMLImageElement).src = pickedImageUrl;
+      $('#guest-preview').classList.remove('hidden');
+      $('#guest-msg').textContent = '';
+    } catch {
+      $('#guest-msg').textContent = '⚠️ Не вдалося завантажити зображення';
+    }
   });
-  $('#btn-guest-cancel').addEventListener('click', () => $('#guest-modal').classList.add('hidden'));
-  document
-    .querySelector('#guest-modal .modal-backdrop')!
-    .addEventListener('click', () => $('#guest-modal').classList.add('hidden'));
 
   const submit = async () => {
-    const input = $('#guest-input') as HTMLInputElement;
+    if (!state.id) return;
     const val = input.value.trim();
-    if (!val || !state.id) return;
-    const ok = await addEntry(state.id, val);
+    if (!val && !pickedImageUrl) {
+      $('#guest-msg').textContent = 'Напиши варіант або обери зображення';
+      return;
+    }
+    const ok = await submitPending(state.id, {
+      label: val || undefined,
+      imageUrl: pickedImageUrl || undefined,
+    });
     if (!ok) {
-      $('#guest-msg').textContent = '⚠️ Не вдалося додати (можливо колесо заповнене)';
+      $('#guest-msg').textContent = '⚠️ Не вдалося надіслати (можливо черга заповнена)';
       return;
     }
     localStorage.setItem(`ll-guest-${state.id}`, '1');
-    $('#guest-modal').classList.add('hidden');
+    closeModal();
     addBtn.classList.add('hidden');
-    input.value = '';
-    toast('Дякуємо! Твій варіант додано 🎉');
-    void refreshFromServer(); // show it on the wheel right away
+    toast('Дякуємо! Твій варіант надіслано ведучому 🎉');
   };
   $('#btn-guest-submit').addEventListener('click', () => void submit());
-  ($('#guest-input') as HTMLInputElement).addEventListener('keydown', (e) => {
+  input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') void submit();
   });
 }
 
-/* ── Live refresh: pick up guest contributions (append-only, never clobbers edits) ── */
-
-async function refreshFromServer(): Promise<void> {
-  if (!state.id) return;
-  const data = await loadWheel(state.id).catch(() => null);
-  if (data) applyLoaded(data);
-}
+/* ── Host moderation: guest submissions arrive as a popup to approve/reject ── */
 
 function startGuestPoll(): void {
+  if (isGuest) return; // guests don't moderate
   setInterval(() => {
-    if (!state.id || dirty || saving || wheel.isSpinning) return;
+    if (!state.id || !savedToServer || saving || wheel.isSpinning) return;
+    if (!$('#mod-modal').classList.contains('hidden')) return; // a decision is already open
     if (!$('#winner-modal').classList.contains('hidden')) return;
-    if (!$('#guest-modal').classList.contains('hidden')) return;
     void loadWheel(state.id).then((data) => {
-      // Never flip the owner's mode/view or touch the other list — only APPEND
-      // genuinely-new guest entries to the current tab. This can't hide images.
-      if (!data || data.mode !== state.mode) return;
-      const serverList = state.mode === 'image' ? data.images : data.texts;
-      const localList = state.mode === 'image' ? state.images : state.texts;
-      if (!Array.isArray(serverList) || serverList.length <= localList.length) return;
-      const extra = serverList.slice(localList.length);
-      if (state.mode === 'image') state.images.push(...(extra as WheelData['images']));
-      else {
-        state.texts.push(...(extra as string[]));
+      const pending = data?.pending ?? [];
+      if (pending.length) showModeration(pending[0]);
+    });
+  }, 4000);
+}
+
+function showModeration(item: PendingEntry): void {
+  if (!item) return;
+  const box = $('#mod-content');
+  box.innerHTML = '';
+  if (item.imageUrl) {
+    const img = document.createElement('img');
+    img.src = item.imageUrl;
+    img.className = 'mod-image';
+    box.appendChild(img);
+  }
+  if (item.label) {
+    const div = document.createElement('div');
+    div.className = 'mod-text';
+    div.textContent = item.label;
+    box.appendChild(div);
+  }
+  $('#mod-modal').classList.remove('hidden');
+
+  const finish = async (approve: boolean) => {
+    if (approve) {
+      // Append to the host's local wheel (persisted when the host next saves).
+      if (item.imageUrl) {
+        if (state.mode !== 'image') switchMode('image');
+        state.images.push({ url: item.imageUrl, label: item.label || undefined });
+      } else if (state.mode === 'image') {
+        state.images.push({ label: item.label });
+      } else {
+        state.texts.push(item.label!);
         textInput.value = state.texts.join('\n');
       }
+      dirty = true;
       rebuild();
-      if (!isGuest) toast('Додано новий гостьовий варіант');
-    });
-  }, 5000);
+    }
+    if (state.id) await resolvePending(state.id, item.pid);
+    $('#mod-modal').classList.add('hidden');
+  };
+  $('#btn-mod-approve').onclick = () => void finish(true);
+  $('#btn-mod-reject').onclick = () => void finish(false);
+}
+
+function switchMode(mode: WheelData['mode']): void {
+  state.mode = mode;
+  document
+    .querySelectorAll<HTMLButtonElement>('.tab')
+    .forEach((t) => t.classList.toggle('active', t.dataset.mode === mode));
+  $('#pane-text').classList.toggle('hidden', mode !== 'text');
+  $('#pane-image').classList.toggle('hidden', mode !== 'image');
 }
 
 /* ── Toast ── */

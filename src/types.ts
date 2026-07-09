@@ -14,6 +14,15 @@ export interface WheelData {
   images: ImageEntry[];
   /** Winners that were pulled off the wheel — kept, not deleted. */
   played: PlayedEntry[];
+  /** Guest submissions awaiting host approval (server-managed). */
+  pending?: PendingEntry[];
+}
+
+export interface PendingEntry {
+  pid: string;
+  label?: string;
+  imageUrl?: string;
+  at?: string;
 }
 
 export interface PlayedEntry {

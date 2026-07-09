@@ -29,14 +29,24 @@ export async function deleteWheel(id: string): Promise<void> {
   await fetch(`/api/wheels/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-/** Guest contribution — append one entry to a wheel. Returns false if full/failed. */
-export async function addEntry(id: string, label: string): Promise<boolean> {
-  const res = await fetch(`/api/wheels/${encodeURIComponent(id)}/entry`, {
+/** Guest contribution — submit a text or image to the host's moderation queue. */
+export async function submitPending(
+  id: string,
+  payload: { label?: string; imageUrl?: string }
+): Promise<boolean> {
+  const res = await fetch(`/api/wheels/${encodeURIComponent(id)}/pending`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ label }),
+    body: JSON.stringify(payload),
   });
   return res.ok;
+}
+
+/** Host resolves a pending item (drop it from the queue after approve/reject). */
+export async function resolvePending(id: string, pid: string): Promise<void> {
+  await fetch(`/api/wheels/${encodeURIComponent(id)}/pending/${encodeURIComponent(pid)}/resolve`, {
+    method: 'POST',
+  });
 }
 
 export async function loadWheel(id: string): Promise<WheelData | null> {

@@ -116,10 +116,27 @@
       <div class="modal-card guest-card">
         <div class="modal-eyebrow">Ваш варіант</div>
         <input id="guest-input" class="guest-input" maxlength="60" placeholder="Напиши свій варіант…" autocomplete="off" />
+        <div class="guest-or">або</div>
+        <button id="btn-guest-image" class="btn ghost full">🖼️ Обрати зображення</button>
+        <input id="guest-file" type="file" accept="image/*" hidden />
+        <div id="guest-preview" class="guest-preview hidden"><img id="guest-preview-img" alt="" /></div>
         <div id="guest-msg" class="guest-msg"></div>
         <div class="modal-actions">
           <button id="btn-guest-cancel" class="btn ghost">Скасувати</button>
-          <button id="btn-guest-submit" class="btn gold">Додати</button>
+          <button id="btn-guest-submit" class="btn gold">Надіслати</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Host moderation: approve/reject a guest's submission -->
+    <div id="mod-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-card mod-card">
+        <div class="modal-eyebrow">Новий варіант від глядача</div>
+        <div id="mod-content" class="mod-content"></div>
+        <div class="modal-actions">
+          <button id="btn-mod-reject" class="btn ghost">Відхилити</button>
+          <button id="btn-mod-approve" class="btn gold">Додати на колесо</button>
         </div>
       </div>
     </div>

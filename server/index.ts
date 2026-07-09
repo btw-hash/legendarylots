@@ -1,5 +1,5 @@
 import express from 'express';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, existsSync } from 'node:fs';
 import { readFile, writeFile, readdir, unlink, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -50,6 +50,14 @@ app.post('/api/wheels', async (req, res) => {
   if (!id) id = newId();
   wheel.id = id;
   wheel.savedAt = new Date().toISOString();
+  // A host full-save must not wipe the guest pending queue (managed separately).
+  if (wheel.pending === undefined && existsSync(wheelPath(id))) {
+    try {
+      wheel.pending = JSON.parse(await readFile(wheelPath(id), 'utf8')).pending ?? [];
+    } catch {
+      /* ignore */
+    }
+  }
   await writeFile(wheelPath(id), JSON.stringify(wheel));
   res.json({ id });
 });
@@ -97,28 +105,50 @@ app.get('/api/wheels/:id', async (req, res) => {
   res.type('json').send(await readFile(wheelPath(id)));
 });
 
-// Guest contribution: append ONE entry to a wheel (stream viewers). Never
-// replaces the wheel — safe to expose to untrusted guests.
-app.post('/api/wheels/:id/entry', async (req, res) => {
+// Guest contribution (stream viewers): text or image goes into a PENDING queue
+// for the host to approve/reject — never straight onto the wheel. Safe to expose.
+app.post('/api/wheels/:id/pending', async (req, res) => {
   const { id } = req.params;
   if (!idOk(id) || !existsSync(wheelPath(id))) {
     res.status(404).json({ error: 'not found' });
     return;
   }
   const label = typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 60) : '';
-  if (!label) {
+  const imageUrl =
+    typeof req.body?.imageUrl === 'string' && req.body.imageUrl.startsWith('/i/')
+      ? req.body.imageUrl
+      : '';
+  if (!label && !imageUrl) {
     res.status(400).json({ error: 'empty' });
     return;
   }
   const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
-  const list: unknown[] = w.mode === 'image' ? (w.images ??= []) : (w.texts ??= []);
-  if (list.length >= 100) {
-    res.status(409).json({ error: 'full' });
+  w.pending ??= [];
+  if (w.pending.length >= 50) {
+    res.status(409).json({ error: 'queue full' });
     return;
   }
-  if (w.mode === 'image') w.images.push({ label });
-  else w.texts.push(label);
-  w.savedAt = new Date().toISOString();
+  const pid = randomUUID().slice(0, 8);
+  w.pending.push({
+    pid,
+    label: label || undefined,
+    imageUrl: imageUrl || undefined,
+    at: new Date().toISOString(),
+  });
+  await writeFile(wheelPath(id), JSON.stringify(w));
+  res.json({ pid });
+});
+
+// Host resolves a pending item (approve OR reject both just drop it from the
+// queue; the host adds approved items to its own wheel locally, saved manually).
+app.post('/api/wheels/:id/pending/:pid/resolve', async (req, res) => {
+  const { id, pid } = req.params;
+  if (!idOk(id) || !existsSync(wheelPath(id))) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
+  w.pending = (w.pending ?? []).filter((p: { pid?: string }) => p?.pid !== pid);
   await writeFile(wheelPath(id), JSON.stringify(w));
   res.json({ ok: true });
 });
@@ -153,6 +183,7 @@ async function sweepOrphanImages(): Promise<void> {
       let w: {
         images?: { url?: string }[];
         played?: { imageUrl?: string }[];
+        pending?: { imageUrl?: string }[];
       };
       try {
         w = JSON.parse(await readFile(path.join(WHEELS, f), 'utf8'));
@@ -165,8 +196,13 @@ async function sweepOrphanImages(): Promise<void> {
       for (const e of w.images ?? []) {
         if (typeof e?.url === 'string' && e.url.startsWith('/i/')) referenced.add(e.url.slice(3));
       }
-      // Images moved to the "played" window are still in use — must be kept.
+      // Images moved to the "played" window or awaiting moderation are still in use.
       for (const p of w.played ?? []) {
+        if (typeof p?.imageUrl === 'string' && p.imageUrl.startsWith('/i/')) {
+          referenced.add(p.imageUrl.slice(3));
+        }
+      }
+      for (const p of w.pending ?? []) {
         if (typeof p?.imageUrl === 'string' && p.imageUrl.startsWith('/i/')) {
           referenced.add(p.imageUrl.slice(3));
         }
