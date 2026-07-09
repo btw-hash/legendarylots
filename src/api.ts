@@ -1,14 +1,20 @@
 import type { WheelData } from './types';
 
-export async function saveWheel(wheel: WheelData): Promise<string> {
+export async function saveWheel(
+  wheel: WheelData,
+  editToken?: string
+): Promise<{ id: string; editToken: string }> {
   const res = await fetch('/api/wheels', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(editToken ? { 'x-edit-token': editToken } : {}),
+    },
     body: JSON.stringify(wheel),
   });
+  if (res.status === 403) throw new Error('forbidden');
   if (!res.ok) throw new Error(`save failed: ${res.status}`);
-  const { id } = (await res.json()) as { id: string };
-  return id;
+  return (await res.json()) as { id: string; editToken: string };
 }
 
 export interface WheelSummary {
@@ -25,8 +31,11 @@ export async function listWheels(): Promise<WheelSummary[]> {
   return (await res.json()) as WheelSummary[];
 }
 
-export async function deleteWheel(id: string): Promise<void> {
-  await fetch(`/api/wheels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export async function deleteWheel(id: string, editToken?: string): Promise<void> {
+  await fetch(`/api/wheels/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: editToken ? { 'x-edit-token': editToken } : {},
+  });
 }
 
 /** Guest contribution — submit a text or image to the host's moderation queue. */
@@ -43,9 +52,10 @@ export async function submitPending(
 }
 
 /** Host resolves a pending item (drop it from the queue after approve/reject). */
-export async function resolvePending(id: string, pid: string): Promise<void> {
+export async function resolvePending(id: string, pid: string, editToken?: string): Promise<void> {
   await fetch(`/api/wheels/${encodeURIComponent(id)}/pending/${encodeURIComponent(pid)}/resolve`, {
     method: 'POST',
+    headers: editToken ? { 'x-edit-token': editToken } : {},
   });
 }
 

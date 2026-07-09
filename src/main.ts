@@ -90,6 +90,18 @@ function forgetWheel(id: string): void {
   localStorage.setItem('ll-mine', JSON.stringify(myWheelIds().filter((x) => x !== id)));
 }
 
+/* ── Edit tokens: the secret capability to modify a wheel (owner-only) ── */
+
+function tokenFor(id?: string): string | undefined {
+  return id ? localStorage.getItem(`ll-token-${id}`) || undefined : undefined;
+}
+
+function rememberToken(id: string, token: string): void {
+  if (token) localStorage.setItem(`ll-token-${id}`, token);
+}
+
+let readOnly = false; // opened a wheel we don't own — view only, can't break it
+
 const wheel = new Wheel($('#wheel') as unknown as HTMLCanvasElement);
 
 /* ── Sectors from state ── */
@@ -505,15 +517,19 @@ async function doAutoSave(): Promise<void> {
   saving = true;
   setSaveState('saving');
   try {
-    const id = await saveWheel(state); // reuses the local seed if we already made one
+    const { id, editToken } = await saveWheel(state, tokenFor(state.id));
     state.id = id;
+    rememberToken(id, editToken); // this device now owns edit rights
     savedToServer = true;
     rememberWheel(id);
     if (!location.pathname.endsWith(`/w/${id}`)) history.replaceState(null, '', `/w/${id}`);
     dirty = false; // saved → no unsaved changes (also re-enables the guest poll)
     showSeedPill();
-  } catch {
+  } catch (e) {
     setSaveState('error');
+    if (e instanceof Error && e.message === 'forbidden') {
+      toast('⛔ Немає прав на редагування цього колеса');
+    }
   } finally {
     saving = false;
   }
@@ -529,7 +545,14 @@ savePill.addEventListener('click', () => {
     toast('Спершу натисни «Зберегти»');
     return;
   }
-  void navigator.clipboard.writeText(location.href).then(() => toast('Посилання скопійовано'));
+  // The owner's link carries the secret edit token (open it on any of your devices).
+  const tok = tokenFor(state.id);
+  const link = tok
+    ? `${location.origin}/w/${state.id}#e=${tok}`
+    : `${location.origin}/w/${state.id}`;
+  void navigator.clipboard
+    .writeText(link)
+    .then(() => toast('Посилання для редагування скопійовано (не показуй глядачам)'));
 });
 
 // Explicit Save — flush now, confirm, and its seed shows up in "Мої колеса".
@@ -595,7 +618,7 @@ function renderMyWheels(wheels: WheelSummary[]): void {
     del.title = 'Видалити';
     del.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await deleteWheel(w.id);
+      await deleteWheel(w.id, tokenFor(w.id));
       forgetWheel(w.id);
       const mine = new Set(myWheelIds());
       renderMyWheels(
@@ -654,9 +677,16 @@ function applyLoaded(data: WheelData, fromServer = true): void {
   $('#pane-text').classList.toggle('hidden', state.mode !== 'text');
   $('#pane-image').classList.toggle('hidden', state.mode !== 'image');
   savedToServer = fromServer && !!state.id;
+  // Loaded a wheel we don't hold the edit token for → view only (can't break it).
+  if (fromServer && !isGuest && state.id && !tokenFor(state.id)) enterReadOnly();
   showSeedPill();
   dirty = false;
   rebuild();
+}
+
+function enterReadOnly(): void {
+  readOnly = true;
+  document.body.classList.add('readonly');
 }
 
 /* ── Draft persistence (same device) ── */
@@ -803,7 +833,7 @@ function enterGuestMode(): void {
 function startGuestPoll(): void {
   if (isGuest) return; // guests don't moderate
   setInterval(() => {
-    if (!state.id || !savedToServer || saving || wheel.isSpinning) return;
+    if (readOnly || !state.id || !savedToServer || saving || wheel.isSpinning) return;
     if (!$('#mod-modal').classList.contains('hidden')) return; // a decision is already open
     if (!$('#winner-modal').classList.contains('hidden')) return;
     void loadWheel(state.id).then((data) => {
@@ -846,7 +876,7 @@ function showModeration(item: PendingEntry): void {
       dirty = true;
       rebuild();
     }
-    if (state.id) await resolvePending(state.id, item.pid);
+    if (state.id) await resolvePending(state.id, item.pid, tokenFor(state.id));
     $('#mod-modal').classList.add('hidden');
   };
   $('#btn-mod-approve').onclick = () => void finish(true);
@@ -878,10 +908,18 @@ function toast(msg: string): void {
 async function boot(): Promise<void> {
   const m = location.pathname.match(/^\/w\/([A-Za-z0-9]{4,16})$/);
   if (m) {
-    const data = await loadWheel(m[1]).catch(() => null);
+    const code = m[1];
+    // Owner's edit link carries the secret token in the URL fragment — capture it,
+    // then scrub it from the address bar so it can't be shoulder-surfed on stream.
+    const tok = new URLSearchParams(location.hash.slice(1)).get('e');
+    if (tok) {
+      rememberToken(code, tok);
+      history.replaceState(null, '', `/w/${code}`);
+    }
+    const data = await loadWheel(code).catch(() => null);
     if (data) {
       applyLoaded(data);
-      if (!isGuest) rememberWheel(data.id!);
+      if (!isGuest && tokenFor(code)) rememberWheel(code); // only remember wheels we own
     } else {
       toast('⚠️ Колесо не знайдено');
       history.replaceState(null, '', '/');

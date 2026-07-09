@@ -365,6 +365,7 @@ body {
   position: absolute;
   top: 3px;
   right: 3px;
+  z-index: 3; /* above the caption input, which covers the whole text-thumb */
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -380,6 +381,12 @@ body {
 
 .thumb:hover .thumb-del {
   opacity: 1;
+}
+
+/* On text-thumbs the caption fills the cell, so keep the ✕ always tappable. */
+.text-thumb .thumb-del {
+  opacity: 1;
+  background: rgba(20, 8, 3, 0.92);
 }
 
 .text-thumb {
@@ -876,6 +883,15 @@ body.guest #save-pill {
 
 body.guest .arena {
   padding-bottom: 90px;
+}
+
+/* Read-only: opened a wheel without edit rights — hide editing, keep the wheel. */
+body.readonly .panel,
+body.readonly .panel-toggle,
+body.readonly #btn-new,
+body.readonly #btn-guest-link,
+body.readonly #save-pill {
+  display: none !important;
 }
 
 .guest-add {

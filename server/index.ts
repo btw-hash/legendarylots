@@ -48,18 +48,28 @@ app.post('/api/wheels', async (req, res) => {
   // content, client-side); only mint one when none was supplied.
   let id: string = typeof wheel.id === 'string' && idOk(wheel.id) ? wheel.id.toUpperCase() : '';
   if (!id) id = newId();
+
+  // Capability security: the public code lets anyone VIEW + contribute (moderated),
+  // but overwriting a wheel needs its secret editToken, held only by the owner.
+  let existing: { editToken?: string; pending?: unknown } | null = null;
+  if (existsSync(wheelPath(id))) {
+    try {
+      existing = JSON.parse(await readFile(wheelPath(id), 'utf8'));
+    } catch {
+      existing = null;
+    }
+  }
+  if (existing?.editToken && req.header('x-edit-token') !== existing.editToken) {
+    res.status(403).json({ error: 'no edit rights' });
+    return;
+  }
+  wheel.editToken = existing?.editToken ?? randomUUID().replace(/-/g, '');
   wheel.id = id;
   wheel.savedAt = new Date().toISOString();
   // A host full-save must not wipe the guest pending queue (managed separately).
-  if (wheel.pending === undefined && existsSync(wheelPath(id))) {
-    try {
-      wheel.pending = JSON.parse(await readFile(wheelPath(id), 'utf8')).pending ?? [];
-    } catch {
-      /* ignore */
-    }
-  }
+  if (wheel.pending === undefined) wheel.pending = existing?.pending ?? [];
   await writeFile(wheelPath(id), JSON.stringify(wheel));
-  res.json({ id });
+  res.json({ id, editToken: wheel.editToken });
 });
 
 // List saved wheels (newest first) for the "my wheels" seed picker.
@@ -86,13 +96,36 @@ app.get('/api/wheels', async (_req, res) => {
   res.json(out.slice(0, 60));
 });
 
+// Require the wheel's editToken for a mutation; returns true if allowed.
+async function assertEditRights(
+  id: string,
+  req: express.Request,
+  res: express.Response
+): Promise<boolean> {
+  try {
+    const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
+    if (w.editToken && req.header('x-edit-token') !== w.editToken) {
+      res.status(403).json({ error: 'no edit rights' });
+      return false;
+    }
+  } catch {
+    /* unreadable → allow (nothing to protect) */
+  }
+  return true;
+}
+
 app.delete('/api/wheels/:id', async (req, res) => {
   const { id } = req.params;
   if (!idOk(id)) {
     res.status(400).json({ error: 'bad id' });
     return;
   }
-  if (existsSync(wheelPath(id))) await unlink(wheelPath(id));
+  if (!existsSync(wheelPath(id))) {
+    res.json({ ok: true });
+    return;
+  }
+  if (!(await assertEditRights(id, req, res))) return;
+  await unlink(wheelPath(id));
   res.json({ ok: true });
 });
 
@@ -102,7 +135,9 @@ app.get('/api/wheels/:id', async (req, res) => {
     res.status(404).json({ error: 'not found' });
     return;
   }
-  res.type('json').send(await readFile(wheelPath(id)));
+  const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
+  delete w.editToken; // never expose the secret
+  res.json(w);
 });
 
 // Guest contribution (stream viewers): text or image goes into a PENDING queue
@@ -147,6 +182,7 @@ app.post('/api/wheels/:id/pending/:pid/resolve', async (req, res) => {
     res.status(404).json({ error: 'not found' });
     return;
   }
+  if (!(await assertEditRights(id, req, res))) return; // only the host moderates
   const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
   w.pending = (w.pending ?? []).filter((p: { pid?: string }) => p?.pid !== pid);
   await writeFile(wheelPath(id), JSON.stringify(w));
