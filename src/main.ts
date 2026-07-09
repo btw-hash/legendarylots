@@ -14,8 +14,56 @@ const $ = <T extends HTMLElement>(sel: string): T => document.querySelector(sel)
 
 const state: WheelData = { name: '', mode: 'text', texts: [], images: [], played: [] };
 let winnerIdx = -1;
-let dirty = false; // only auto-save after a real user edit
+let dirty = false; // has unsaved changes
+let savedToServer = false; // the current id exists on the server (Save pressed / loaded)
 const isGuest = new URLSearchParams(location.search).get('guest') === '1';
+
+/* ── Seed: generated locally on first content, persisted only on Save ── */
+
+const SEED_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+function genSeed(): string {
+  let s = '';
+  for (let i = 0; i < 4; i++) s += SEED_ALPHABET[Math.floor(Math.random() * SEED_ALPHABET.length)];
+  return s;
+}
+
+let seedInFlight = false;
+async function ensureSeed(): Promise<void> {
+  if (state.id || seedInFlight || isGuest) return;
+  seedInFlight = true;
+  try {
+    let id = '';
+    for (let i = 0; i < 6; i++) {
+      const cand = genSeed();
+      const exists = await loadWheel(cand).catch(() => null); // read-only availability check
+      if (!exists) {
+        id = cand;
+        break;
+      }
+    }
+    if (state.id) return; // set while we were checking
+    state.id = id || genSeed();
+    savedToServer = false;
+    showSeedPill(); // shows the code as "не збережено" until the Зберегти button
+  } finally {
+    seedInFlight = false;
+  }
+}
+
+function showSeedPill(): void {
+  if (!state.id) {
+    savePill.classList.add('hidden');
+    return;
+  }
+  savePill.querySelector('.save-pill-code')!.textContent = state.id;
+  savePill.querySelector('.save-pill-hint')!.textContent = savedToServer
+    ? 'копіювати'
+    : 'не збережено';
+  savePill.dataset.state = savedToServer ? 'saved' : 'pending';
+  savePill.classList.remove('hidden');
+}
+
+/* ── My wheels are tracked per-device (localStorage), not a global pool ── */
 
 /* ── My wheels are tracked per-device (localStorage), not a global pool ── */
 
@@ -73,6 +121,8 @@ function applyWheel(): void {
     'зображень'
   );
   saveDraft(); // local draft only — server save is manual (the Зберегти button)
+  // As soon as there's content, a fresh wheel gets its own code (local until Save).
+  if (!state.id && sectors.length >= 1) void ensureSeed();
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -448,14 +498,13 @@ async function doAutoSave(): Promise<void> {
   saving = true;
   setSaveState('saving');
   try {
-    const id = await saveWheel(state);
+    const id = await saveWheel(state); // reuses the local seed if we already made one
     state.id = id;
+    savedToServer = true;
     rememberWheel(id);
     if (!location.pathname.endsWith(`/w/${id}`)) history.replaceState(null, '', `/w/${id}`);
-    savePill.querySelector('.save-pill-code')!.textContent = id;
-    savePill.classList.remove('hidden');
-    setSaveState('saved');
     dirty = false; // saved → no unsaved changes (also re-enables the guest poll)
+    showSeedPill();
   } catch {
     setSaveState('error');
   } finally {
@@ -469,6 +518,10 @@ function setSaveState(s: 'pending' | 'saving' | 'saved' | 'error'): void {
 
 savePill.addEventListener('click', () => {
   if (!state.id) return;
+  if (!savedToServer) {
+    toast('Спершу натисни «Зберегти»');
+    return;
+  }
   void navigator.clipboard.writeText(location.href).then(() => toast('Посилання скопійовано'));
 });
 
@@ -576,7 +629,7 @@ async function openByCode(): Promise<void> {
   toast('Колесо відкрито');
 }
 
-function applyLoaded(data: WheelData): void {
+function applyLoaded(data: WheelData, fromServer = true): void {
   state.id = data.id;
   state.name = data.name ?? '';
   state.mode = data.mode === 'image' ? 'image' : 'text';
@@ -593,11 +646,8 @@ function applyLoaded(data: WheelData): void {
     .forEach((t) => t.classList.toggle('active', t.dataset.mode === state.mode));
   $('#pane-text').classList.toggle('hidden', state.mode !== 'text');
   $('#pane-image').classList.toggle('hidden', state.mode !== 'image');
-  if (state.id) {
-    savePill.querySelector('.save-pill-code')!.textContent = state.id;
-    savePill.classList.remove('hidden');
-    setSaveState('saved');
-  }
+  savedToServer = fromServer && !!state.id;
+  showSeedPill();
   dirty = false;
   rebuild();
 }
@@ -652,19 +702,20 @@ $('#btn-new').addEventListener('click', () => {
     .forEach((t) => t.classList.toggle('active', t.dataset.mode === 'text'));
   $('#pane-text').classList.toggle('hidden', false);
   $('#pane-image').classList.toggle('hidden', true);
+  savedToServer = false;
   savePill.classList.add('hidden');
   localStorage.removeItem('ll-draft');
   history.replaceState(null, '', '/');
   dirty = false;
-  rebuild();
+  rebuild(); // next content typed will mint a fresh seed via ensureSeed()
   toast('Нове колесо');
 });
 
 /* ── Guest link (for streamers to share) ── */
 
 $('#btn-guest-link').addEventListener('click', async () => {
-  if (!state.id) {
-    toast('Спершу збережи колесо');
+  if (!state.id || !savedToServer) {
+    toast('Спершу натисни «Зберегти»');
     return;
   }
   const link = `${location.origin}/w/${state.id}?guest=1`;
@@ -769,7 +820,17 @@ async function boot(): Promise<void> {
     }
   } else if (!isGuest) {
     const draft = loadDraft();
-    if (draft) applyLoaded(draft);
+    if (draft) {
+      applyLoaded(draft, false); // draft is local; verify if its code is actually on the server
+      if (state.id) {
+        void loadWheel(state.id)
+          .then((d) => {
+            savedToServer = !!d;
+            showSeedPill();
+          })
+          .catch(() => {});
+      }
+    }
   }
   rebuild();
   void document.fonts.ready.then(() => applyWheel());

@@ -44,8 +44,10 @@ app.post('/api/wheels', async (req, res) => {
     res.status(400).json({ error: 'bad wheel payload' });
     return;
   }
+  // Honor a valid client-provided code (the wheel gets its seed the moment it has
+  // content, client-side); only mint one when none was supplied.
   let id: string = typeof wheel.id === 'string' && idOk(wheel.id) ? wheel.id.toUpperCase() : '';
-  if (!id || !existsSync(wheelPath(id))) id = newId();
+  if (!id) id = newId();
   wheel.id = id;
   wheel.savedAt = new Date().toISOString();
   await writeFile(wheelPath(id), JSON.stringify(wheel));
