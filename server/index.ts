@@ -136,8 +136,9 @@ app.get('/api/wheels/:id', async (req, res) => {
     return;
   }
   const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
+  const isProtected = !!w.editToken; // has an owner — others get read-only
   delete w.editToken; // never expose the secret
-  res.json(w);
+  res.json({ ...w, protected: isProtected });
 });
 
 // Guest contribution (stream viewers): text or image goes into a PENDING queue

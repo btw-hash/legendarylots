@@ -677,8 +677,9 @@ function applyLoaded(data: WheelData, fromServer = true): void {
   $('#pane-text').classList.toggle('hidden', state.mode !== 'text');
   $('#pane-image').classList.toggle('hidden', state.mode !== 'image');
   savedToServer = fromServer && !!state.id;
-  // Loaded a wheel we don't hold the edit token for → view only (can't break it).
-  if (fromServer && !isGuest && state.id && !tokenFor(state.id)) enterReadOnly();
+  // A protected wheel we don't hold the token for → view only (can't break it).
+  // Old/unprotected wheels stay editable so the owner can re-save (and lock) them.
+  if (fromServer && !isGuest && state.id && data.protected && !tokenFor(state.id)) enterReadOnly();
   showSeedPill();
   dirty = false;
   rebuild();

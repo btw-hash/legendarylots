@@ -16,6 +16,8 @@ export interface WheelData {
   played: PlayedEntry[];
   /** Guest submissions awaiting host approval (server-managed). */
   pending?: PendingEntry[];
+  /** GET-only: whether the wheel has an owner (edit token) → others are read-only. */
+  protected?: boolean;
 }
 
 export interface PendingEntry {
