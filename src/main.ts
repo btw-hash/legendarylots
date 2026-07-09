@@ -9,7 +9,6 @@ import {
   saveWheel,
   loadWheel,
   uploadImage,
-  listWheels,
   deleteWheel,
   submitPending,
   resolvePending,
@@ -27,46 +26,20 @@ let dirty = false; // has unsaved changes
 let savedToServer = false; // the current id exists on the server (Save pressed / loaded)
 const isGuest = new URLSearchParams(location.search).get('guest') === '1';
 
-/* ── Seed: generated locally on first content, persisted only on Save ── */
+/* ── Save state: there are no short codes. A wheel exists on the server only after
+   Зберегти, and you keep it by its link (the pill copies it). The server mints a
+   long, unguessable id on first save — nothing is typed or remembered by hand. ── */
 
-const SEED_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-function genSeed(): string {
-  let s = '';
-  for (let i = 0; i < 4; i++) s += SEED_ALPHABET[Math.floor(Math.random() * SEED_ALPHABET.length)];
-  return s;
-}
-
-let seedInFlight = false;
-async function ensureSeed(): Promise<void> {
-  if (state.id || seedInFlight || isGuest) return;
-  seedInFlight = true;
-  try {
-    let id = '';
-    for (let i = 0; i < 6; i++) {
-      const cand = genSeed();
-      const exists = await loadWheel(cand).catch(() => null); // read-only availability check
-      if (!exists) {
-        id = cand;
-        break;
-      }
-    }
-    if (state.id) return; // set while we were checking
-    state.id = id || genSeed();
-    savedToServer = false;
-    showSeedPill(); // shows the code as "не збережено" until the Зберегти button
-  } finally {
-    seedInFlight = false;
-  }
-}
-
-function showSeedPill(): void {
-  if (!state.id) {
+function refreshSavePill(): void {
+  const hasContent = state.texts.length > 0 || state.images.length > 0;
+  if (!state.id && !hasContent) {
     savePill.classList.add('hidden');
     return;
   }
-  const unsaved = !savedToServer || dirty; // has a code, but current state not on server
-  savePill.querySelector('.save-pill-code')!.textContent = state.id;
-  savePill.querySelector('.save-pill-hint')!.textContent = unsaved ? 'не збережено' : 'копіювати';
+  const unsaved = !savedToServer || dirty;
+  savePill.querySelector('.save-pill-hint')!.textContent = unsaved
+    ? 'не збережено'
+    : '🔗 копіювати посилання';
   savePill.dataset.state = unsaved ? 'pending' : 'saved';
   savePill.classList.remove('hidden');
 }
@@ -139,9 +112,7 @@ function applyWheel(): void {
     'зображень'
   );
   saveDraft(); // local draft only — server save is manual (the Зберегти button)
-  // As soon as there's content, a fresh wheel gets its own code (local until Save).
-  if (!state.id && sectors.length >= 1) void ensureSeed();
-  else if (state.id) showSeedPill(); // reflect unsaved edits in the pill
+  refreshSavePill();
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -524,7 +495,7 @@ async function doAutoSave(): Promise<void> {
     rememberWheel(id);
     if (!location.pathname.endsWith(`/w/${id}`)) history.replaceState(null, '', `/w/${id}`);
     dirty = false; // saved → no unsaved changes (also re-enables the guest poll)
-    showSeedPill();
+    refreshSavePill();
   } catch (e) {
     setSaveState('error');
     if (e instanceof Error && e.message === 'forbidden') {
@@ -555,7 +526,7 @@ savePill.addEventListener('click', () => {
     .then(() => toast('Посилання для редагування скопійовано (не показуй глядачам)'));
 });
 
-// Explicit Save — flush now, confirm, and its seed shows up in "Мої колеса".
+// Explicit Save — persist now, mint the wheel's link, list it in "Мої прокрути".
 $('#btn-save').addEventListener('click', async () => {
   if (wheel.count < 1) {
     toast('Колесо порожнє — додай варіанти');
@@ -566,9 +537,34 @@ $('#btn-save').addEventListener('click', async () => {
   toast(state.id ? `Збережено ✓ (${state.id})` : 'Збережено ✓');
 });
 
-/* ── My wheels: pick a saved seed ── */
+/* ── My wheels: pick one of this device's saved wheels ── */
 
 const myWheelsBox = $('#my-wheels');
+
+// Load summaries for this device's own wheels by fetching each id (tracked in
+// localStorage). There is intentionally no server-side "list all wheels" endpoint —
+// codes are secrets, so the server must not hand out everyone's.
+async function loadMyWheels(): Promise<WheelSummary[]> {
+  const ids = myWheelIds();
+  const loaded = await Promise.all(
+    ids.map(async (id) => {
+      const d = await loadWheel(id).catch(() => null);
+      if (!d) {
+        forgetWheel(id); // gone from the server → drop it from "mine"
+        return null;
+      }
+      const count = (d.mode === 'image' ? d.images?.length : d.texts?.length) || 0;
+      if (count < 1) return null; // skip empty
+      const label =
+        d.name ||
+        (d.mode === 'image'
+          ? d.images?.[0]?.label || `${count} зображень`
+          : d.texts?.[0] || 'Порожнє');
+      return { id, label, mode: d.mode ?? 'text', count } as WheelSummary;
+    })
+  );
+  return loaded.filter((w): w is WheelSummary => w !== null);
+}
 
 $('#btn-my-wheels').addEventListener('click', async () => {
   if (!myWheelsBox.classList.contains('hidden')) {
@@ -577,11 +573,7 @@ $('#btn-my-wheels').addEventListener('click', async () => {
   }
   myWheelsBox.innerHTML = '<div class="mw-empty">Завантаження…</div>';
   myWheelsBox.classList.remove('hidden');
-  const mine = new Set(myWheelIds());
-  const wheels = (await listWheels().catch(() => [] as WheelSummary[]))
-    .filter((w) => mine.has(w.id) && w.count > 0) // only my wheels, skip empty
-    .sort((a, b) => myWheelIds().indexOf(a.id) - myWheelIds().indexOf(b.id));
-  renderMyWheels(wheels);
+  renderMyWheels(await loadMyWheels());
 });
 
 function renderMyWheels(wheels: WheelSummary[]): void {
@@ -620,10 +612,7 @@ function renderMyWheels(wheels: WheelSummary[]): void {
       e.stopPropagation();
       await deleteWheel(w.id, tokenFor(w.id));
       forgetWheel(w.id);
-      const mine = new Set(myWheelIds());
-      renderMyWheels(
-        (await listWheels().catch(() => [])).filter((x) => mine.has(x.id) && x.count > 0)
-      );
+      renderMyWheels(await loadMyWheels());
     });
 
     row.append(main, del);
@@ -636,27 +625,6 @@ function escapeHtml(s: string): string {
     /[&<>"]/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!
   );
-}
-
-/* ── Open by code ── */
-
-$('#btn-open').addEventListener('click', () => void openByCode());
-($('#code-input') as HTMLInputElement).addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') void openByCode();
-});
-
-async function openByCode(): Promise<void> {
-  const code = ($('#code-input') as HTMLInputElement).value.trim().toUpperCase();
-  if (!code) return;
-  const data = await loadWheel(code).catch(() => null);
-  if (!data) {
-    toast('⚠️ Колесо з таким кодом не знайдено');
-    return;
-  }
-  applyLoaded(data);
-  if (data.id) rememberWheel(data.id);
-  history.replaceState(null, '', `/w/${data.id}`);
-  toast('Колесо відкрито');
 }
 
 function applyLoaded(data: WheelData, fromServer = true): void {
@@ -678,9 +646,10 @@ function applyLoaded(data: WheelData, fromServer = true): void {
   $('#pane-image').classList.toggle('hidden', state.mode !== 'image');
   savedToServer = fromServer && !!state.id;
   // A protected wheel we don't hold the token for → view only (can't break it).
-  // Old/unprotected wheels stay editable so the owner can re-save (and lock) them.
-  if (fromServer && !isGuest && state.id && data.protected && !tokenFor(state.id)) enterReadOnly();
-  showSeedPill();
+  // Decided purely by token possession, NOT by the ?guest URL param (which the
+  // visitor controls) — so stripping/altering the param can't unlock editing.
+  if (fromServer && state.id && data.protected && !tokenFor(state.id)) enterReadOnly();
+  refreshSavePill();
   dirty = false;
   rebuild();
 }
@@ -745,7 +714,7 @@ $('#btn-new').addEventListener('click', () => {
   localStorage.removeItem('ll-draft');
   history.replaceState(null, '', '/');
   dirty = false;
-  rebuild(); // next content typed will mint a fresh seed via ensureSeed()
+  rebuild(); // stays local until Зберегти, which mints the wheel's link
   toast('Нове колесо');
 });
 
@@ -763,11 +732,14 @@ $('#btn-guest-link').addEventListener('click', async () => {
 
 /* ── Guest mode: viewers add one variant, nothing else ── */
 
+const GUEST_LIMIT = 3;
+
 function enterGuestMode(): void {
   document.body.classList.add('guest');
   const addBtn = $('#btn-guest-add');
-  const already = state.id ? localStorage.getItem(`ll-guest-${state.id}`) === '1' : false;
-  addBtn.classList.toggle('hidden', already);
+  const guestKey = state.id ? `ll-guest-${state.id}` : '';
+  const guestCount = () => (guestKey ? Number(localStorage.getItem(guestKey) ?? '0') : 0);
+  addBtn.classList.toggle('hidden', guestCount() >= GUEST_LIMIT);
 
   let pickedImageUrl = ''; // set once the guest's chosen image is uploaded
   const input = $('#guest-input') as HTMLInputElement;
@@ -818,10 +790,16 @@ function enterGuestMode(): void {
       $('#guest-msg').textContent = '⚠️ Не вдалося надіслати (можливо черга заповнена)';
       return;
     }
-    localStorage.setItem(`ll-guest-${state.id}`, '1');
+    const n = guestCount() + 1;
+    localStorage.setItem(guestKey, String(n));
     closeModal();
-    addBtn.classList.add('hidden');
-    toast('Дякуємо! Твій варіант надіслано ведучому 🎉');
+    if (n >= GUEST_LIMIT) addBtn.classList.add('hidden');
+    const left = GUEST_LIMIT - n;
+    toast(
+      left > 0
+        ? `Дякуємо! Надіслано ведучому 🎉 (ще ${left})`
+        : 'Дякуємо! Твій варіант надіслано ведучому 🎉'
+    );
   };
   $('#btn-guest-submit').addEventListener('click', () => void submit());
   input.addEventListener('keydown', (e) => {
@@ -907,7 +885,7 @@ function toast(msg: string): void {
 /* ── Boot ── */
 
 async function boot(): Promise<void> {
-  const m = location.pathname.match(/^\/w\/([A-Za-z0-9]{4,16})$/);
+  const m = location.pathname.match(/^\/w\/([a-z0-9]{8,32})$/);
   if (m) {
     const code = m[1];
     // Owner's edit link carries the secret token in the URL fragment — capture it,
@@ -933,7 +911,7 @@ async function boot(): Promise<void> {
         void loadWheel(state.id)
           .then((d) => {
             savedToServer = !!d;
-            showSeedPill();
+            refreshSavePill();
           })
           .catch(() => {});
       }

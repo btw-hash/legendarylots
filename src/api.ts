@@ -22,13 +22,6 @@ export interface WheelSummary {
   label: string;
   mode: string;
   count: number;
-  savedAt: string;
-}
-
-export async function listWheels(): Promise<WheelSummary[]> {
-  const res = await fetch('/api/wheels');
-  if (!res.ok) throw new Error(`list failed: ${res.status}`);
-  return (await res.json()) as WheelSummary[];
 }
 
 export async function deleteWheel(id: string, editToken?: string): Promise<void> {
