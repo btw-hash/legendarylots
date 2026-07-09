@@ -7,13 +7,17 @@ import { customAlphabet } from 'nanoid';
 
 const PORT = Number(process.env.PORT ?? 3940);
 const ROOT = path.resolve(import.meta.dirname, '..');
-const DATA = path.join(ROOT, 'data');
+const DATA = process.env.LL_DATA_DIR
+  ? path.resolve(process.env.LL_DATA_DIR)
+  : path.join(ROOT, 'data');
 const WHEELS = path.join(DATA, 'wheels');
 const IMAGES = path.join(DATA, 'images');
 for (const d of [WHEELS, IMAGES]) mkdirSync(d, { recursive: true });
 
-// Unambiguous alphabet — codes get typed by hand on a tablet. 4 chars.
-const genId = customAlphabet('23456789ABCDEFGHJKMNPQRSTUVWXYZ', 4);
+// Long, unguessable id — there are no short codes any more; a wheel is reached only
+// by its link, so the id doubles as an unguessable capability (~80 bits). Lowercase
+// + digits only: single-case keeps it safe on case-insensitive filesystems.
+const genId = customAlphabet('23456789abcdefghijkmnpqrstuvwxyz', 16);
 function newId(): string {
   let id = genId();
   for (let i = 0; i < 8 && existsSync(wheelPath(id)); i++) id = genId(); // avoid collision
@@ -28,12 +32,76 @@ const EXT: Record<string, string> = {
 };
 
 const app = express();
+
+// Baseline security headers. Notably nosniff — user-uploaded blobs are served from
+// /i, so browsers must not content-sniff them into something executable — and
+// frame-ancestors 'none' to prevent clickjacking the host's edit/delete buttons.
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
+// Lightweight per-IP fixed-window throttle for the unauthenticated WRITE paths
+// (create/upload/contribute). The whole surface is anonymous, so without this a
+// single client can fill the disk or flood queues at line speed. Read paths are
+// left unthrottled (cheap, and codes are already unguessable-ish).
+const rlHits = new Map<string, { n: number; reset: number }>();
+function rateLimit(max: number, windowMs: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    const key = `${req.path}\0${ip}`;
+    const now = Date.now();
+    const cur = rlHits.get(key);
+    if (!cur || now > cur.reset) {
+      rlHits.set(key, { n: 1, reset: now + windowMs });
+    } else if (cur.n >= max) {
+      res.status(429).json({ error: 'too many requests' });
+      return;
+    } else {
+      cur.n++;
+    }
+    if (rlHits.size > 5000) for (const [k, v] of rlHits) if (now > v.reset) rlHits.delete(k);
+    next();
+  };
+}
+
 app.use(express.json({ limit: '2mb' }));
 
-const idOk = (id: string) => /^[A-Z0-9]{4,16}$/i.test(id);
-const wheelPath = (id: string) => path.join(WHEELS, `${id.toUpperCase()}.json`);
+const idOk = (id: string) => /^[a-z0-9]{8,32}$/.test(id);
+const wheelPath = (id: string) => path.join(WHEELS, `${id}.json`);
 
-app.post('/api/wheels', async (req, res) => {
+// Cap persisted content so a stored wheel can't become a resource-exhaustion
+// payload for every viewer who later opens that code.
+const MAX_LABEL = 200;
+const MAX_ENTRIES = 200;
+const clampStr = (v: unknown, max: number): string =>
+  typeof v === 'string' ? v.slice(0, max) : '';
+function sanitizeWheel(w: {
+  texts?: unknown[];
+  images?: { url?: unknown; label?: unknown }[];
+  played?: { label?: unknown; imageUrl?: unknown; mode?: unknown }[];
+  name?: unknown;
+}): void {
+  w.name = clampStr(w.name, MAX_LABEL);
+  w.texts = (Array.isArray(w.texts) ? w.texts : [])
+    .slice(0, MAX_ENTRIES)
+    .map((t) => clampStr(t, MAX_LABEL));
+  w.images = (Array.isArray(w.images) ? w.images : []).slice(0, MAX_ENTRIES).map((i) => ({
+    url: typeof i?.url === 'string' && i.url.startsWith('/i/') ? i.url : undefined,
+    label: i?.label !== undefined ? clampStr(i.label, MAX_LABEL) : undefined,
+  }));
+  w.played = (Array.isArray(w.played) ? w.played : []).slice(0, MAX_ENTRIES).map((p) => ({
+    label: clampStr(p?.label, MAX_LABEL),
+    imageUrl:
+      typeof p?.imageUrl === 'string' && p.imageUrl.startsWith('/i/') ? p.imageUrl : undefined,
+    mode: p?.mode === 'image' ? 'image' : 'text',
+  }));
+}
+
+app.post('/api/wheels', rateLimit(60, 60_000), async (req, res) => {
   const wheel = req.body;
   if (
     !wheel ||
@@ -44,22 +112,28 @@ app.post('/api/wheels', async (req, res) => {
     res.status(400).json({ error: 'bad wheel payload' });
     return;
   }
-  // Honor a valid client-provided code (the wheel gets its seed the moment it has
-  // content, client-side); only mint one when none was supplied.
-  let id: string = typeof wheel.id === 'string' && idOk(wheel.id) ? wheel.id.toUpperCase() : '';
+  sanitizeWheel(wheel);
+  // Reuse the id the client already holds (an update); mint a fresh long id for a
+  // brand-new wheel. Clients never invent ids — the first save gets one from here.
+  let id: string = typeof wheel.id === 'string' && idOk(wheel.id) ? wheel.id : '';
   if (!id) id = newId();
 
-  // Capability security: the public code lets anyone VIEW + contribute (moderated),
-  // but overwriting a wheel needs its secret editToken, held only by the owner.
+  // Capability security: the link lets anyone VIEW + contribute (moderated), but
+  // overwriting an EXISTING wheel needs its secret editToken, held only by the
+  // owner. A brand-new id (no file yet) is free to create and mints its own token.
+  const fileExists = existsSync(wheelPath(id));
   let existing: { editToken?: string; pending?: unknown } | null = null;
-  if (existsSync(wheelPath(id))) {
+  if (fileExists) {
     try {
       existing = JSON.parse(await readFile(wheelPath(id), 'utf8'));
     } catch {
       existing = null;
     }
   }
-  if (existing?.editToken && req.header('x-edit-token') !== existing.editToken) {
+  // Any existing wheel is protected: unreadable or token-mismatch → refuse. This
+  // closes the "know the code → overwrite/claim it" hole (legacy wheels get a
+  // token at startup, see migrateLegacyTokens).
+  if (fileExists && (!existing?.editToken || req.header('x-edit-token') !== existing.editToken)) {
     res.status(403).json({ error: 'no edit rights' });
     return;
   }
@@ -72,29 +146,10 @@ app.post('/api/wheels', async (req, res) => {
   res.json({ id, editToken: wheel.editToken });
 });
 
-// List saved wheels (newest first) for the "my wheels" seed picker.
-app.get('/api/wheels', async (_req, res) => {
-  const files = await readdir(WHEELS).catch(() => [] as string[]);
-  const out: { id: string; label: string; mode: string; count: number; savedAt: string }[] = [];
-  for (const f of files) {
-    if (!f.endsWith('.json')) continue;
-    try {
-      const w = JSON.parse(await readFile(path.join(WHEELS, f), 'utf8'));
-      const count = (w.mode === 'image' ? w.images?.length : w.texts?.length) || 0;
-      const label =
-        w.name ||
-        (w.mode === 'image'
-          ? w.images?.[0]?.label || `${count} зображень`
-          : w.texts?.[0] || 'Порожнє') ||
-        w.id;
-      out.push({ id: w.id, label, mode: w.mode ?? 'text', count, savedAt: w.savedAt ?? '' });
-    } catch {
-      /* skip unreadable */
-    }
-  }
-  out.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
-  res.json(out.slice(0, 60));
-});
+// NOTE: there is deliberately NO "list all wheels" endpoint. Codes are secrets
+// (they grant view + contribute); enumerating them all to any caller would defeat
+// that. The "my wheels" picker is per-device — the client tracks its own ids in
+// localStorage and loads each by code.
 
 // Require the wheel's editToken for a mutation; returns true if allowed.
 async function assertEditRights(
@@ -102,14 +157,17 @@ async function assertEditRights(
   req: express.Request,
   res: express.Response
 ): Promise<boolean> {
+  let w: { editToken?: string };
   try {
-    const w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
-    if (w.editToken && req.header('x-edit-token') !== w.editToken) {
-      res.status(403).json({ error: 'no edit rights' });
-      return false;
-    }
+    w = JSON.parse(await readFile(wheelPath(id), 'utf8'));
   } catch {
-    /* unreadable → allow (nothing to protect) */
+    // Unreadable → refuse rather than grant edit rights to an unauthenticated caller.
+    res.status(500).json({ error: 'wheel unreadable' });
+    return false;
+  }
+  if (!w.editToken || req.header('x-edit-token') !== w.editToken) {
+    res.status(403).json({ error: 'no edit rights' });
+    return false;
   }
   return true;
 }
@@ -143,7 +201,7 @@ app.get('/api/wheels/:id', async (req, res) => {
 
 // Guest contribution (stream viewers): text or image goes into a PENDING queue
 // for the host to approve/reject — never straight onto the wheel. Safe to expose.
-app.post('/api/wheels/:id/pending', async (req, res) => {
+app.post('/api/wheels/:id/pending', rateLimit(20, 60_000), async (req, res) => {
   const { id } = req.params;
   if (!idOk(id) || !existsSync(wheelPath(id))) {
     res.status(404).json({ error: 'not found' });
@@ -190,17 +248,48 @@ app.post('/api/wheels/:id/pending/:pid/resolve', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/images', express.raw({ type: 'image/*', limit: '8mb' }), async (req, res) => {
-  const ext = EXT[req.headers['content-type'] ?? ''];
-  if (!ext || !(req.body instanceof Buffer) || req.body.length === 0) {
-    res.status(400).json({ error: 'bad image' });
-    return;
+// Verify the actual file signature, not the client-supplied Content-Type — this
+// endpoint is anonymous and world-writable, so we must not become a host for
+// arbitrary (spoofed-as-image) binaries. Returns the true extension or null.
+function sniffImage(buf: Buffer): string | null {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'png';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'gif';
+  if (
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 && // "RIFF"
+    buf[8] === 0x57 &&
+    buf[9] === 0x45 &&
+    buf[10] === 0x42 &&
+    buf[11] === 0x50 // "WEBP"
+  )
+    return 'webp';
+  return null;
+}
+
+app.post(
+  '/api/images',
+  rateLimit(40, 60_000),
+  express.raw({ type: 'image/*', limit: '8mb' }),
+  async (req, res) => {
+    if (!(req.body instanceof Buffer) || req.body.length === 0) {
+      res.status(400).json({ error: 'bad image' });
+      return;
+    }
+    const ext = sniffImage(req.body); // trust the bytes, not the header
+    if (!ext || !EXT[req.headers['content-type'] ?? '']) {
+      res.status(400).json({ error: 'unsupported image type' });
+      return;
+    }
+    const name = `${createHash('sha256').update(req.body).digest('hex').slice(0, 16)}.${ext}`;
+    const file = path.join(IMAGES, name);
+    if (!existsSync(file)) await writeFile(file, req.body);
+    res.json({ url: `/i/${name}` });
   }
-  const name = `${createHash('sha256').update(req.body).digest('hex').slice(0, 16)}.${ext}`;
-  const file = path.join(IMAGES, name);
-  if (!existsSync(file)) await writeFile(file, req.body);
-  res.json({ url: `/i/${name}` });
-});
+);
 
 app.use('/i', express.static(IMAGES, { immutable: true, maxAge: '365d' }));
 

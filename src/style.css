@@ -907,6 +907,12 @@ body.readonly #save-pill {
     0 6px 22px rgba(0, 0, 0, 0.55);
 }
 
+/* Keep the centering transform on press — the base .btn:active { translateY(1px) }
+   would otherwise drop translateX(-50%) and make the button jump sideways. */
+.guest-add:active {
+  transform: translateX(-50%) translateY(1px);
+}
+
 .guest-card {
   gap: 16px;
   padding: 28px;
