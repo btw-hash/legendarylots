@@ -12,8 +12,13 @@ const WHEELS = path.join(DATA, 'wheels');
 const IMAGES = path.join(DATA, 'images');
 for (const d of [WHEELS, IMAGES]) mkdirSync(d, { recursive: true });
 
-// Unambiguous alphabet — codes get typed by hand on a tablet.
-const newId = customAlphabet('23456789ABCDEFGHJKMNPQRSTUVWXYZ', 8);
+// Unambiguous alphabet — codes get typed by hand on a tablet. 4 chars.
+const genId = customAlphabet('23456789ABCDEFGHJKMNPQRSTUVWXYZ', 4);
+function newId(): string {
+  let id = genId();
+  for (let i = 0; i < 8 && existsSync(wheelPath(id)); i++) id = genId(); // avoid collision
+  return id;
+}
 
 const EXT: Record<string, string> = {
   'image/jpeg': 'jpg',

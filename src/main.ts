@@ -72,8 +72,7 @@ function applyWheel(): void {
     'зображення',
     'зображень'
   );
-  saveDraft();
-  if (dirty) scheduleSave();
+  saveDraft(); // local draft only — server save is manual (the Зберегти button)
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -428,7 +427,7 @@ wheelCanvas.addEventListener('touchend', () => {
   setTimeout(hidePreview, 1400);
 });
 
-/* ── Auto-save (every wheel has a live code — no Save button) ── */
+/* ── Save (manual only — the Зберегти button; nothing hits the server until then) ── */
 
 const savePill = $('#save-pill');
 let saveTimer = 0;
