@@ -247,35 +247,6 @@ body {
     0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
-.tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--wood-line);
-}
-
-.tab {
-  font-family: 'Forum', serif;
-  font-size: 16px;
-  letter-spacing: 0.06em;
-  padding: 8px 0;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.tab.active {
-  background: linear-gradient(180deg, #f7ce58, #c8912b);
-  color: var(--ink);
-  font-weight: 700;
-  box-shadow: 0 1px 0 rgba(255, 240, 180, 0.6) inset;
-}
-
 .pane {
   flex: 0 0 auto; /* content height; the panel scrolls, panes don't fight for space */
   display: flex;
@@ -283,24 +254,10 @@ body {
   gap: 10px;
 }
 
-#text-input {
-  min-height: 220px;
-  resize: vertical;
-  resize: none;
-  padding: 12px;
-  border-radius: 10px;
-  border: 1px solid var(--wood-line);
-  background: rgba(0, 0, 0, 0.32);
-  color: var(--text);
-  font-family: 'Alegreya Sans', sans-serif;
-  font-size: 16px;
-  line-height: 1.55;
-}
-
-#text-input:focus {
-  outline: none;
-  border-color: var(--gold-lo);
-  box-shadow: 0 0 0 3px rgba(224, 168, 46, 0.12);
+.btn.danger {
+  background: linear-gradient(180deg, #d9694a, #a5341f);
+  color: #fff;
+  border-color: #c04a30;
 }
 
 .wheel-name {

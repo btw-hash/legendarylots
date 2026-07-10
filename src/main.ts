@@ -272,7 +272,23 @@ function renderThumbs(): void {
   });
 }
 
-$('#btn-clear-all').addEventListener('click', () => {
+// Two-step confirm — clearing wipes the live wheel, so require a second click.
+const clearBtn = $('#btn-clear-all') as HTMLButtonElement;
+let clearArmed = 0;
+function disarmClear(): void {
+  clearArmed = 0;
+  clearBtn.textContent = 'Очистити все';
+  clearBtn.classList.remove('danger');
+}
+clearBtn.addEventListener('click', () => {
+  if (!clearArmed) {
+    clearArmed = window.setTimeout(disarmClear, 3000);
+    clearBtn.textContent = 'Точно? Очистити';
+    clearBtn.classList.add('danger');
+    return;
+  }
+  clearTimeout(clearArmed);
+  disarmClear();
   state.images = [];
   markDirty();
   rebuild();
@@ -613,14 +629,14 @@ function renderMyWheels(wheels: WheelSummary[]): void {
         toast('⚠️ Не вдалося відкрити');
         return;
       }
-      // Load the snapshot's CONTENT into a fresh live wheel (id cleared) so the
-      // frozen snapshot is never written to. Autosave mints a new live id + link.
+      // Load the snapshot's CONTENT into the CURRENT live wheel, keeping its id +
+      // link so a paired tablet stays paired. We only READ the snapshot, so it stays
+      // frozen; autosave writes the restored content to the live record and syncs.
+      const liveId = state.id;
       applyLoaded(data, false);
-      state.id = undefined;
-      savedToServer = false;
-      lastRev = 0;
-      history.replaceState(null, '', '/');
-      markDirty();
+      state.id = liveId; // NOT the snapshot's id — never write back to the frozen copy
+      savedToServer = !!liveId;
+      markDirty(); // autosave the live wheel (mints a new id + link only if none yet)
       myWheelsBox.classList.add('hidden');
       toast('Знімок завантажено');
     });
@@ -855,14 +871,17 @@ function startOwnerPoll(): void {
       }
       // 2. Show one moderation card at a time (don't stack over an open one).
       if (!readOnly && !modOpen && !winnerOpen && (data.pending?.length ?? 0)) {
-        showModeration(data.pending![0]);
+        showModeration(data.pending![0], data.pending!.length);
       }
     });
   }, 2500);
 }
 
-function showModeration(item: PendingEntry): void {
+function showModeration(item: PendingEntry, queueLen = 1): void {
   if (!item) return;
+  const eyebrow = $('#mod-modal .modal-eyebrow');
+  eyebrow.textContent =
+    queueLen > 1 ? `Варіант від глядача · ще ${queueLen - 1} у черзі` : 'Варіант від глядача';
   const box = $('#mod-content');
   box.innerHTML = '';
   if (item.imageUrl) {
@@ -910,7 +929,35 @@ function toast(msg: string): void {
 
 /* ── Boot ── */
 
+// The wheel labels are drawn to canvas in Alegreya Sans 700. Its Cyrillic subset
+// loads lazily and canvas use doesn't trigger it, so a cold load can paint labels
+// in a fallback (or as tofu). Force the subset in, then redraw once it's really ready.
+async function ensureWheelFont(): Promise<void> {
+  const spec = '700 20px "Alegreya Sans"';
+  const sample = 'Приз Ы';
+  try {
+    await document.fonts.load(spec, sample);
+  } catch {
+    /* ignore — we still poll + redraw below */
+  }
+  for (let i = 0; i < 40; i++) {
+    if (document.fonts.check(spec, sample)) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  applyWheel();
+}
+
+// One-time: wheels saved before the snapshot model lived in `ll-mine` and no longer
+// showed in "Мої прокрути". Fold them in once so they don't silently disappear.
+function migrateOldWheelsToSnapshots(): void {
+  if (localStorage.getItem('ll-snap-migrated')) return;
+  const merged = [...snapshotIds(), ...myWheelIds().filter((id) => !snapshotIds().includes(id))];
+  localStorage.setItem('ll-snapshots', JSON.stringify(merged.slice(0, 60)));
+  localStorage.setItem('ll-snap-migrated', '1');
+}
+
 async function boot(): Promise<void> {
+  migrateOldWheelsToSnapshots();
   const m = location.pathname.match(/^\/w\/([a-z0-9]{8,32})$/);
   if (m) {
     const code = m[1];
@@ -946,7 +993,7 @@ async function boot(): Promise<void> {
   }
   if (!isGuest && !readOnly) ensureName(); // every editable wheel gets a name (default "Колесо N")
   rebuild();
-  void document.fonts.ready.then(() => applyWheel());
+  void ensureWheelFont();
 
   if (isGuest) enterGuestMode();
   startOwnerPoll();
