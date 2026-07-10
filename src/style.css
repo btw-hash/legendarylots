@@ -1006,6 +1006,49 @@ body.readonly #save-pill {
 
 /* ── Host moderation modal ── */
 
+/* Non-blocking moderation card: fixed on the right, hangs until the host decides,
+   never covers or blocks the wheel/panel. Only the card itself catches clicks. */
+.mod-side {
+  position: fixed;
+  top: 84px;
+  right: 20px;
+  z-index: 80;
+  width: min(300px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.mod-side.hidden {
+  display: none;
+}
+
+.mod-side .modal-card {
+  width: 100%;
+  pointer-events: auto;
+  padding: 16px;
+  gap: 12px;
+  animation: mod-slide-in 0.28s cubic-bezier(0.2, 1, 0.4, 1);
+}
+
+.mod-side .modal-eyebrow {
+  font-size: 16px;
+  letter-spacing: 0.08em;
+}
+
+.mod-side .modal-actions {
+  width: 100%;
+}
+
+.mod-side .modal-actions .btn {
+  flex: 1;
+}
+
+@keyframes mod-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
 .mod-card {
   gap: 16px;
   padding: 26px;
@@ -1026,12 +1069,21 @@ body.readonly #save-pill {
   border: 1px solid var(--wood-line);
 }
 
+.mod-side .mod-image {
+  max-height: 28vh;
+}
+
 .mod-text {
   font-family: 'Forum', serif;
   font-size: 30px;
   text-align: center;
   line-height: 1.25;
   padding: 8px 6px;
+}
+
+.mod-side .mod-text {
+  font-size: 20px;
+  padding: 4px;
 }
 
 /* ── Tablet (portrait & narrow landscape) ── */

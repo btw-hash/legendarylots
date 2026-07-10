@@ -120,15 +120,15 @@
       </div>
     </div>
 
-    <!-- Host moderation: approve/reject a guest's submission -->
-    <div id="mod-modal" class="modal hidden">
-      <div class="modal-backdrop"></div>
+    <!-- Host moderation: a non-blocking side card that hangs on the right until
+         the host decides. No backdrop — the rest of the UI stays usable. -->
+    <div id="mod-modal" class="mod-side hidden">
       <div class="modal-card mod-card">
-        <div class="modal-eyebrow">Новий варіант від глядача</div>
+        <div class="modal-eyebrow">Варіант від глядача</div>
         <div id="mod-content" class="mod-content"></div>
         <div class="modal-actions">
           <button id="btn-mod-reject" class="btn ghost">Відхилити</button>
-          <button id="btn-mod-approve" class="btn gold">Додати на колесо</button>
+          <button id="btn-mod-approve" class="btn gold">Додати</button>
         </div>
       </div>
     </div>

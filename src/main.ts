@@ -836,31 +836,25 @@ function startOwnerPoll(): void {
     if (!state.id || !savedToServer) return;
     void loadWheel(state.id).then((data) => {
       if (!data) return;
-      const modalsClosed =
-        $('#mod-modal').classList.contains('hidden') &&
-        $('#winner-modal').classList.contains('hidden');
-      // 1. Pull a newer state made on the OTHER device — but only while this device
-      //    is idle, so we never clobber an in-progress edit or spin.
+      const winnerOpen = !$('#winner-modal').classList.contains('hidden');
+      const modOpen = !$('#mod-modal').classList.contains('hidden');
+      // 1. Pull a newer state made on the OTHER device — only while this device is
+      //    idle. The moderation card is non-blocking, so it does NOT stop the pull
+      //    (approval reads a captured item, not live state).
       if (
         typeof data.rev === 'number' &&
         data.rev > lastRev &&
         !dirty &&
         !saving &&
         !wheel.isSpinning &&
-        modalsClosed
+        !winnerOpen
       ) {
         const wasReadOnly = readOnly;
         applyLoaded(data); // sets lastRev, rebuilds the wheel + lists
         readOnly = wasReadOnly; // applyLoaded may re-enter read-only; keep our status
       }
-      // 2. Guest submissions waiting for moderation.
-      if (
-        !readOnly &&
-        !saving &&
-        !wheel.isSpinning &&
-        modalsClosed &&
-        (data.pending?.length ?? 0)
-      ) {
+      // 2. Show one moderation card at a time (don't stack over an open one).
+      if (!readOnly && !modOpen && !winnerOpen && (data.pending?.length ?? 0)) {
         showModeration(data.pending![0]);
       }
     });
