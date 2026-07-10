@@ -877,7 +877,7 @@ function unresolvedPending(data: WheelData): PendingEntry[] {
 function startOwnerPoll(): void {
   if (isGuest) return; // guests don't moderate or sync
   setInterval(() => {
-    if (!state.id || !savedToServer) return;
+    if (!state.id || !savedToServer || wheel.isSpinning) return; // no network/parse mid-spin
     void loadWheel(state.id).then((data) => {
       if (!data) return;
       const winnerOpen = !$('#winner-modal').classList.contains('hidden');
