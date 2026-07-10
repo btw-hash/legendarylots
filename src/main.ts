@@ -20,7 +20,10 @@ import { burstConfetti } from './confetti';
 
 const $ = <T extends HTMLElement>(sel: string): T => document.querySelector(sel) as T;
 
-const state: WheelData = { name: '', mode: 'text', texts: [], images: [], played: [] };
+// One unified list of sectors lives in `images`: an entry with a url is a photo,
+// an entry with only a label is a text sector. `texts`/`mode` stay in the type for
+// storage compat but are always empty/'image' now (legacy texts migrate on load).
+const state: WheelData = { name: '', mode: 'image', texts: [], images: [], played: [] };
 let winnerIdx = -1;
 let dirty = false; // has unsaved changes
 let savedToServer = false; // the current id exists on the server (Save pressed / loaded)
@@ -31,7 +34,7 @@ const isGuest = new URLSearchParams(location.search).get('guest') === '1';
    long, unguessable id on first save — nothing is typed or remembered by hand. ── */
 
 function refreshSavePill(): void {
-  const hasContent = state.texts.length > 0 || state.images.length > 0;
+  const hasContent = state.images.length > 0;
   if (!state.id && !hasContent) {
     savePill.classList.add('hidden');
     return;
@@ -80,9 +83,6 @@ const wheel = new Wheel($('#wheel') as unknown as HTMLCanvasElement);
 /* ── Sectors from state ── */
 
 function currentSectors(): Sector[] {
-  if (state.mode === 'text') {
-    return state.texts.map((t, i) => ({ label: t, color: PALETTE[i % PALETTE.length] }));
-  }
   return state.images.map((img, i) => ({
     label: img.label ?? '',
     imageUrl: img.url,
@@ -90,54 +90,20 @@ function currentSectors(): Sector[] {
   }));
 }
 
-/** Full rebuild: wheel + thumbs + text chips + hints + played. */
+/** Full rebuild: wheel + entry list + hints + played. */
 function rebuild(): void {
   applyWheel();
   renderThumbs();
-  renderTextChips();
   renderPlayed();
-  $('#btn-clear-images').classList.toggle('hidden', state.images.length === 0);
+  $('#btn-clear-all').classList.toggle('hidden', state.images.length === 0);
 }
 
-/** Removable chips for each text sector — a per-variant ✕ next to the textarea. */
-function renderTextChips(): void {
-  const box = $('#text-chips');
-  box.innerHTML = '';
-  if (state.mode !== 'text' || state.texts.length === 0) return;
-  state.texts.forEach((t, i) => {
-    const chip = document.createElement('span');
-    chip.className = 'text-chip';
-    const label = document.createElement('span');
-    label.className = 'text-chip-label';
-    label.textContent = t;
-    const del = document.createElement('button');
-    del.className = 'text-chip-del';
-    del.textContent = '✕';
-    del.title = 'Прибрати';
-    del.addEventListener('click', () => {
-      state.texts.splice(i, 1);
-      textInput.value = state.texts.join('\n');
-      markDirty();
-      rebuild();
-    });
-    chip.append(label, del);
-    box.appendChild(chip);
-  });
-}
-
-/** Wheel + hints only — used while typing a caption so thumb inputs keep focus. */
+/** Wheel + hints only — used while typing a caption so entry inputs keep focus. */
 function applyWheel(): void {
   const sectors = currentSectors();
   wheel.setSectors(sectors);
   ($('#btn-spin') as HTMLButtonElement).disabled = sectors.length < 2;
-  $('#text-hint').textContent = plural(state.texts.length, 'варіант', 'варіанти', 'варіантів');
-  $('#btn-clear-text').classList.toggle('hidden', state.texts.length === 0);
-  $('#image-hint').textContent = plural(
-    state.images.length,
-    'зображення',
-    'зображення',
-    'зображень'
-  );
+  $('#entry-hint').textContent = plural(state.images.length, 'варіант', 'варіанти', 'варіантів');
   saveDraft(); // local draft (offline resilience); the server copy is kept via autosave
   refreshSavePill();
 }
@@ -176,40 +142,35 @@ function plural(n: number, one: string, few: string, many: string): string {
   return `${n} ${w}`;
 }
 
-/* ── Mode tabs ── */
+/* ── Add a text variant: type + Enter (one), or paste a multi-line list (many) ── */
 
-document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    const mode = tab.dataset.mode as WheelData['mode'];
-    if (mode === state.mode) return;
-    state.mode = mode;
-    markDirty();
-    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
-    $('#pane-text').classList.toggle('hidden', mode !== 'text');
-    $('#pane-image').classList.toggle('hidden', mode !== 'image');
-    rebuild();
-  });
+const entryInput = $('#entry-input') as HTMLInputElement;
+
+function addTextEntries(lines: string[]): void {
+  const clean = lines.map((l) => l.trim()).filter(Boolean);
+  if (!clean.length) return;
+  for (const label of clean) state.images.push({ label });
+  ensureName();
+  markDirty();
+  rebuild();
+}
+
+entryInput.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  addTextEntries(entryInput.value.split('\n'));
+  entryInput.value = '';
+});
+// Pasting a newline-separated list adds every line at once.
+entryInput.addEventListener('paste', (e) => {
+  const text = e.clipboardData?.getData('text') ?? '';
+  if (!text.includes('\n')) return; // single value → let it land in the field, add on Enter
+  e.preventDefault();
+  addTextEntries(text.split('\n'));
+  entryInput.value = '';
 });
 
-/* ── Text mode ── */
-
-const textInput = $('#text-input') as HTMLTextAreaElement;
-let textDebounce = 0;
-textInput.addEventListener('input', () => {
-  clearTimeout(textDebounce);
-  textDebounce = window.setTimeout(() => {
-    state.texts = textInput.value
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
-    if (state.texts.length) ensureName();
-    markDirty();
-    applyWheel();
-    renderTextChips();
-  }, 180);
-});
-
-/* ── Image mode ── */
+/* ── Add a photo variant ── */
 
 const dropzone = $('#dropzone');
 const fileInput = $('#file-input') as HTMLInputElement;
@@ -292,47 +253,21 @@ function renderThumbs(): void {
   });
 }
 
-$('#btn-clear-images').addEventListener('click', () => {
+$('#btn-clear-all').addEventListener('click', () => {
   state.images = [];
   markDirty();
   rebuild();
 });
 
-$('#btn-clear-text').addEventListener('click', () => {
-  state.texts = [];
-  textInput.value = '';
-  markDirty();
-  rebuild();
-});
-
-$('#btn-add-text-sector').addEventListener('click', () => {
-  state.images.push({}); // empty text sector; user types its caption
-  markDirty();
-  rebuild();
-  const inputs = document.querySelectorAll<HTMLInputElement>('.thumb-caption');
-  inputs[inputs.length - 1]?.focus();
-});
-
-/* ── Played window ── */
-
-/** The tab a played entry belongs to (falls back to image presence for old data). */
-function playedMode(p: WheelData['played'][number]): 'image' | 'text' {
-  return p.mode ?? (p.imageUrl ? 'image' : 'text');
-}
-
-/** Played entries for the CURRENT tab only — winners keep the tab they were played on. */
-function playedForMode(): { p: WheelData['played'][number]; i: number }[] {
-  return state.played.map((p, i) => ({ p, i })).filter((x) => playedMode(x.p) === state.mode);
-}
+/* ── Played window — winners pulled off the wheel (kept, returnable) ── */
 
 function renderPlayed(): void {
-  const items = playedForMode();
-  $('#played-box').classList.toggle('hidden', items.length === 0);
-  $('#played-count').textContent = `(${items.length})`;
+  $('#played-box').classList.toggle('hidden', state.played.length === 0);
+  $('#played-count').textContent = `(${state.played.length})`;
   const list = $('#played-list');
   list.innerHTML = '';
 
-  items.forEach(({ p, i }) => {
+  state.played.forEach((p, i) => {
     const row = document.createElement('div');
     row.className = 'played-item';
     if (p.imageUrl) {
@@ -358,15 +293,9 @@ function renderPlayed(): void {
 }
 
 function restoreEntry(p: WheelData['played'][number]): void {
-  if (playedMode(p) === 'image') {
-    state.images.push(
-      p.imageUrl
-        ? { url: p.imageUrl, label: p.label || undefined }
-        : { label: p.label || undefined }
-    );
-  } else {
-    state.texts.push(p.label);
-  }
+  state.images.push(
+    p.imageUrl ? { url: p.imageUrl, label: p.label || undefined } : { label: p.label || undefined }
+  );
 }
 
 function returnPlayed(i: number): void {
@@ -374,17 +303,14 @@ function returnPlayed(i: number): void {
   if (!p) return;
   state.played.splice(i, 1);
   restoreEntry(p);
-  if (state.mode === 'text') textInput.value = state.texts.join('\n');
   markDirty();
   rebuild();
 }
 
 $('#btn-return-all').addEventListener('click', () => {
-  // Return only the entries shown on the current tab.
-  const returning = playedForMode().map((x) => x.p);
-  state.played = state.played.filter((p) => !returning.includes(p));
+  const returning = state.played;
+  state.played = [];
   for (const p of returning) restoreEntry(p);
-  if (state.mode === 'text') textInput.value = state.texts.join('\n');
   markDirty();
   rebuild();
 });
@@ -452,13 +378,8 @@ $('#btn-remove-winner').addEventListener('click', () => {
   if (winnerIdx < 0) return;
   const s = currentSectors()[winnerIdx];
   // Move to the played window — kept, not deleted.
-  if (s) state.played.push({ label: s.label, imageUrl: s.imageUrl, mode: state.mode });
-  if (state.mode === 'text') {
-    state.texts.splice(winnerIdx, 1);
-    textInput.value = state.texts.join('\n');
-  } else {
-    state.images.splice(winnerIdx, 1);
-  }
+  if (s) state.played.push({ label: s.label, imageUrl: s.imageUrl, mode: 'image' });
+  state.images.splice(winnerIdx, 1);
   winnerIdx = -1;
   markDirty();
   closeWinner();
@@ -498,7 +419,7 @@ function hidePreview(): void {
 
 const wheelCanvas = $('#wheel');
 wheelCanvas.addEventListener('mousemove', (e) => {
-  if (wheel.isSpinning || state.mode !== 'image') return;
+  if (wheel.isSpinning) return;
   const idx = wheel.hitTest(e.clientX, e.clientY);
   if (idx === null) hidePreview();
   else showPreviewAt(idx, e.clientX, e.clientY);
@@ -510,7 +431,7 @@ let pressTimer = 0;
 wheelCanvas.addEventListener(
   'touchstart',
   (e) => {
-    if (wheel.isSpinning || state.mode !== 'image') return;
+    if (wheel.isSpinning) return;
     const t = e.touches[0];
     const idx = wheel.hitTest(t.clientX, t.clientY);
     if (idx === null) return;
@@ -686,20 +607,19 @@ function applyLoaded(data: WheelData, fromServer = true): void {
   state.name = data.name ?? '';
   nameInput.value = state.name;
   if (typeof data.rev === 'number') lastRev = data.rev;
-  state.mode = data.mode === 'image' ? 'image' : 'text';
-  state.texts = Array.isArray(data.texts) ? data.texts.filter((t) => typeof t === 'string') : [];
-  state.images = Array.isArray(data.images)
+  state.mode = 'image'; // unified list; the field is kept only for storage compat
+  state.texts = [];
+  const images = Array.isArray(data.images)
     ? data.images.filter((i) => i && (typeof i.url === 'string' || typeof i.label === 'string'))
     : [];
+  // Migrate legacy text-mode wheels: their sectors live in texts[] → fold them in.
+  const legacyTexts = Array.isArray(data.texts)
+    ? data.texts.filter((t) => typeof t === 'string' && t.trim()).map((t) => ({ label: t }))
+    : [];
+  state.images = [...images, ...legacyTexts];
   state.played = Array.isArray(data.played)
     ? data.played.filter((p) => p && typeof p.label === 'string')
     : [];
-  textInput.value = state.texts.join('\n');
-  document
-    .querySelectorAll<HTMLButtonElement>('.tab')
-    .forEach((t) => t.classList.toggle('active', t.dataset.mode === state.mode));
-  $('#pane-text').classList.toggle('hidden', state.mode !== 'text');
-  $('#pane-image').classList.toggle('hidden', state.mode !== 'image');
   savedToServer = fromServer && !!state.id;
   // A protected wheel we don't hold the token for → view only (can't break it).
   // Decided purely by token possession, NOT by the ?guest URL param (which the
@@ -758,16 +678,11 @@ $('#btn-new').addEventListener('click', () => {
   state.texts = [];
   state.images = [];
   state.played = [];
-  state.mode = 'text';
-  textInput.value = '';
+  state.mode = 'image';
+  entryInput.value = '';
   lastRev = 0;
   readOnly = false;
   document.body.classList.remove('readonly');
-  document
-    .querySelectorAll<HTMLButtonElement>('.tab')
-    .forEach((t) => t.classList.toggle('active', t.dataset.mode === 'text'));
-  $('#pane-text').classList.toggle('hidden', false);
-  $('#pane-image').classList.toggle('hidden', true);
   savedToServer = false;
   savePill.classList.add('hidden');
   localStorage.removeItem('ll-draft');
@@ -926,16 +841,12 @@ function showModeration(item: PendingEntry): void {
 
   const finish = async (approve: boolean) => {
     if (approve) {
-      // Append to the host's local wheel (persisted when the host next saves).
-      if (item.imageUrl) {
-        if (state.mode !== 'image') switchMode('image');
-        state.images.push({ url: item.imageUrl, label: item.label || undefined });
-      } else if (state.mode === 'image') {
-        state.images.push({ label: item.label });
-      } else {
-        state.texts.push(item.label!);
-        textInput.value = state.texts.join('\n');
-      }
+      // Append to the host's unified list (photo if it has a url, else a text sector).
+      state.images.push(
+        item.imageUrl
+          ? { url: item.imageUrl, label: item.label || undefined }
+          : { label: item.label }
+      );
       markDirty();
       rebuild();
     }
@@ -944,15 +855,6 @@ function showModeration(item: PendingEntry): void {
   };
   $('#btn-mod-approve').onclick = () => void finish(true);
   $('#btn-mod-reject').onclick = () => void finish(false);
-}
-
-function switchMode(mode: WheelData['mode']): void {
-  state.mode = mode;
-  document
-    .querySelectorAll<HTMLButtonElement>('.tab')
-    .forEach((t) => t.classList.toggle('active', t.dataset.mode === mode));
-  $('#pane-text').classList.toggle('hidden', mode !== 'text');
-  $('#pane-image').classList.toggle('hidden', mode !== 'image');
 }
 
 /* ── Toast ── */

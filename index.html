@@ -37,35 +37,23 @@
           spellcheck="false"
         />
 
-        <div class="tabs" role="tablist">
-          <button class="tab active" data-mode="text" role="tab">Текст</button>
-          <button class="tab" data-mode="image" role="tab">Зображення</button>
-        </div>
-
-        <section id="pane-text" class="pane">
-          <textarea
-            id="text-input"
-            placeholder="Один рядок — один сектор&#10;&#10;Наприклад:&#10;Скін AK-47&#10;500 голди&#10;Реролл"
+        <section class="pane">
+          <input
+            id="entry-input"
+            class="entry-input"
+            placeholder="Новий варіант — натисни Enter"
+            autocomplete="off"
             spellcheck="false"
-          ></textarea>
-          <div id="text-chips" class="text-chips"></div>
-          <div class="pane-row">
-            <div class="hint" id="text-hint">0 варіантів</div>
-            <button id="btn-clear-text" class="btn ghost small hidden">Очистити все</button>
-          </div>
-        </section>
-
-        <section id="pane-image" class="pane hidden">
+          />
           <div id="dropzone" class="dropzone">
             <div class="dropzone-icon">🖼️</div>
-            <div>Перетягни сюди пачку зображень<br />або натисни, щоб обрати</div>
+            <div>Додати фото — перетягни або натисни</div>
           </div>
           <input id="file-input" type="file" multiple accept="image/*" hidden />
-          <button id="btn-add-text-sector" class="btn ghost small full">➕ Текстовий сектор</button>
           <div id="thumbs" class="thumbs"></div>
           <div class="pane-row">
-            <div class="hint" id="image-hint">0 зображень</div>
-            <button id="btn-clear-images" class="btn ghost small hidden">Очистити все</button>
+            <div class="hint" id="entry-hint">0 варіантів</div>
+            <button id="btn-clear-all" class="btn ghost small hidden">Очистити все</button>
           </div>
         </section>
 
