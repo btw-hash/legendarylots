@@ -133,6 +133,17 @@
       </div>
     </div>
 
+    <!-- Guests panel: the live queue of everything viewers submit, opened from
+         the "Гості" button. Approve/reject each right here. -->
+    <div id="guest-panel" class="guest-panel hidden">
+      <div class="gp-head">
+        <span class="gp-title">Гості онлайн</span>
+        <button id="btn-guest-close" class="btn ghost small">✕</button>
+      </div>
+      <button id="btn-guest-copy" class="btn ghost small full">🔗 Скопіювати посилання</button>
+      <div id="guest-queue" class="guest-queue"></div>
+    </div>
+
     <div id="toast" class="toast hidden"></div>
 
     <script type="module" src="/src/main.ts"></script>

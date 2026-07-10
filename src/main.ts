@@ -757,14 +757,12 @@ $('#btn-new').addEventListener('click', () => {
 
 /* ── Guest link (for streamers to share) ── */
 
-$('#btn-guest-link').addEventListener('click', async () => {
-  if (!state.id || !savedToServer || dirty) {
-    toast('Спершу збережи колесо (Зберегти)');
-    return;
+$('#btn-guest-link').addEventListener('click', () => {
+  const nowHidden = $('#guest-panel').classList.toggle('hidden');
+  if (!nowHidden) {
+    $('#mod-modal').classList.add('hidden'); // the panel supersedes the popup card
+    void refreshGuestQueue(); // show the current queue immediately, then the poll keeps it live
   }
-  const link = `${location.origin}/w/${state.id}?guest=1`;
-  await navigator.clipboard.writeText(link).catch(() => {});
-  toast('Гостьове посилання скопійовано');
 });
 
 /* ── Guest mode: viewers add one variant, nothing else ── */
@@ -844,7 +842,29 @@ function enterGuestMode(): void {
   });
 }
 
-/* ── Host moderation: guest submissions arrive as a popup to approve/reject ── */
+/* ── Host moderation: guest submissions (popup card + the live guests panel) ── */
+
+// Decisions are applied exactly once per submission, optimistically. Repeated taps
+// on "Додати"/"Відхилити" for the same pid are ignored, and the network resolve
+// runs in the background — so nothing lags or double-adds.
+const resolvedPids = new Set<string>();
+
+function resolveItem(item: PendingEntry, approve: boolean): void {
+  if (!item?.pid || resolvedPids.has(item.pid)) return;
+  resolvedPids.add(item.pid);
+  if (approve) {
+    state.images.push(
+      item.imageUrl ? { url: item.imageUrl, label: item.label || undefined } : { label: item.label }
+    );
+    markDirty();
+    rebuild();
+  }
+  if (state.id) void resolvePending(state.id, item.pid, tokenFor(state.id)).catch(() => {});
+}
+
+function unresolvedPending(data: WheelData): PendingEntry[] {
+  return (data.pending ?? []).filter((p) => p?.pid && !resolvedPids.has(p.pid));
+}
 
 function startOwnerPoll(): void {
   if (isGuest) return; // guests don't moderate or sync
@@ -853,10 +873,8 @@ function startOwnerPoll(): void {
     void loadWheel(state.id).then((data) => {
       if (!data) return;
       const winnerOpen = !$('#winner-modal').classList.contains('hidden');
-      const modOpen = !$('#mod-modal').classList.contains('hidden');
-      // 1. Pull a newer state made on the OTHER device — only while this device is
-      //    idle. The moderation card is non-blocking, so it does NOT stop the pull
-      //    (approval reads a captured item, not live state).
+      const guestPanelOpen = !$('#guest-panel').classList.contains('hidden');
+      // Pull a newer state made on the OTHER device — only while this device is idle.
       if (
         typeof data.rev === 'number' &&
         data.rev > lastRev &&
@@ -866,12 +884,15 @@ function startOwnerPoll(): void {
         !winnerOpen
       ) {
         const wasReadOnly = readOnly;
-        applyLoaded(data); // sets lastRev, rebuilds the wheel + lists
-        readOnly = wasReadOnly; // applyLoaded may re-enter read-only; keep our status
+        applyLoaded(data);
+        readOnly = wasReadOnly;
       }
-      // 2. Show one moderation card at a time (don't stack over an open one).
-      if (!readOnly && !modOpen && !winnerOpen && (data.pending?.length ?? 0)) {
-        showModeration(data.pending![0], data.pending!.length);
+      const pending = unresolvedPending(data);
+      if (guestPanelOpen) renderGuestQueue(pending); // keep the open queue live
+      // Popup card for the newest one — but not while the full queue panel is open.
+      const modOpen = !$('#mod-modal').classList.contains('hidden');
+      if (!readOnly && !modOpen && !winnerOpen && !guestPanelOpen && pending.length) {
+        showModeration(pending[0], pending.length);
       }
     });
   }, 2500);
@@ -898,23 +919,80 @@ function showModeration(item: PendingEntry, queueLen = 1): void {
   }
   $('#mod-modal').classList.remove('hidden');
 
-  const finish = async (approve: boolean) => {
-    if (approve) {
-      // Append to the host's unified list (photo if it has a url, else a text sector).
-      state.images.push(
-        item.imageUrl
-          ? { url: item.imageUrl, label: item.label || undefined }
-          : { label: item.label }
-      );
-      markDirty();
-      rebuild();
-    }
-    if (state.id) await resolvePending(state.id, item.pid, tokenFor(state.id));
+  // Hide instantly (no awaiting the network), then apply the decision idempotently.
+  const finish = (approve: boolean) => {
     $('#mod-modal').classList.add('hidden');
+    resolveItem(item, approve);
   };
-  $('#btn-mod-approve').onclick = () => void finish(true);
-  $('#btn-mod-reject').onclick = () => void finish(false);
+  $('#btn-mod-approve').onclick = () => finish(true);
+  $('#btn-mod-reject').onclick = () => finish(false);
 }
+
+/* ── Guests panel: live queue of every viewer submission ── */
+
+const guestPanel = $('#guest-panel');
+
+function renderGuestQueue(pending: PendingEntry[]): void {
+  const box = $('#guest-queue');
+  box.innerHTML = '';
+  if (!pending.length) {
+    box.innerHTML = '<div class="gq-empty">Поки що немає заявок від глядачів</div>';
+    return;
+  }
+  for (const item of pending) {
+    const row = document.createElement('div');
+    row.className = 'gq-item';
+    if (item.imageUrl) {
+      const img = document.createElement('img');
+      img.src = item.imageUrl;
+      img.className = 'gq-img';
+      row.appendChild(img);
+    }
+    const label = document.createElement('span');
+    label.className = 'gq-label';
+    label.textContent = item.label || '🖼 зображення';
+    row.appendChild(label);
+
+    const add = document.createElement('button');
+    add.className = 'btn gold small';
+    add.textContent = 'Додати';
+    add.addEventListener('click', () => {
+      resolveItem(item, true);
+      row.remove();
+    });
+    const rej = document.createElement('button');
+    rej.className = 'btn ghost small';
+    rej.textContent = '✕';
+    rej.title = 'Відхилити';
+    rej.addEventListener('click', () => {
+      resolveItem(item, false);
+      row.remove();
+    });
+    row.append(add, rej);
+    box.appendChild(row);
+  }
+}
+
+async function refreshGuestQueue(): Promise<void> {
+  if (!state.id) {
+    renderGuestQueue([]);
+    return;
+  }
+  const data = await loadWheel(state.id).catch(() => null);
+  renderGuestQueue(data ? unresolvedPending(data) : []);
+}
+
+$('#btn-guest-close').addEventListener('click', () => guestPanel.classList.add('hidden'));
+
+$('#btn-guest-copy').addEventListener('click', async () => {
+  if (!state.id || !savedToServer || dirty) {
+    toast('Спершу збережи колесо (Зберегти)');
+    return;
+  }
+  const link = `${location.origin}/w/${state.id}?guest=1`;
+  await navigator.clipboard.writeText(link).catch(() => {});
+  toast('Гостьове посилання скопійовано');
+});
 
 /* ── Toast ── */
 
