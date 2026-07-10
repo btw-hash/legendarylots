@@ -658,7 +658,12 @@ body {
 }
 
 #wheel {
-  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.55));
+  /* Static circular shadow via box-shadow (NOT filter: drop-shadow): the canvas
+     content rotates every frame, and drop-shadow re-blurs the whole canvas each
+     frame → bad jank on tablets. box-shadow keys off the element's geometry, which
+     doesn't change while the pixels spin, so it's composited once. */
+  border-radius: 50%;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
   cursor: pointer;
   /* The wheel is tapped/long-pressed a lot — suppress the iOS selection frame,
      tap flash and callout so it doesn't look "selected". */
