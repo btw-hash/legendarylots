@@ -214,6 +214,7 @@ app.post('/api/wheels/:id/pending', rateLimit(20, 60_000), async (req, res) => {
     typeof req.body?.imageUrl === 'string' && req.body.imageUrl.startsWith('/i/')
       ? req.body.imageUrl
       : '';
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 40) : '';
   if (!label && !imageUrl) {
     res.status(400).json({ error: 'empty' });
     return;
@@ -229,6 +230,7 @@ app.post('/api/wheels/:id/pending', rateLimit(20, 60_000), async (req, res) => {
     pid,
     label: label || undefined,
     imageUrl: imageUrl || undefined,
+    name: name || undefined,
     at: new Date().toISOString(),
   });
   await writeFile(wheelPath(id), JSON.stringify(w));

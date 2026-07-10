@@ -26,6 +26,8 @@ export interface PendingEntry {
   pid: string;
   label?: string;
   imageUrl?: string;
+  /** Optional guest display name, shown with the variant during moderation. */
+  name?: string;
   at?: string;
 }
 
