@@ -778,15 +778,17 @@ function enterGuestMode(): void {
 
   let pickedImageUrl = ''; // set once the guest's chosen image is uploaded
   const input = $('#guest-input') as HTMLInputElement;
+  const nameInput = $('#guest-name') as HTMLInputElement;
   const fileInput = $('#guest-file') as HTMLInputElement;
 
   const openModal = () => {
     input.value = '';
+    nameInput.value = localStorage.getItem('ll-guest-name') || ''; // remember the name across submits
     pickedImageUrl = '';
     $('#guest-preview').classList.add('hidden');
     $('#guest-msg').textContent = '';
     $('#guest-modal').classList.remove('hidden');
-    input.focus();
+    (nameInput.value ? input : nameInput).focus();
   };
   const closeModal = () => $('#guest-modal').classList.add('hidden');
 
@@ -813,13 +815,16 @@ function enterGuestMode(): void {
   const submit = async () => {
     if (!state.id) return;
     const val = input.value.trim();
+    const name = nameInput.value.trim();
     if (!val && !pickedImageUrl) {
       $('#guest-msg').textContent = 'Напиши варіант або обери зображення';
       return;
     }
+    localStorage.setItem('ll-guest-name', name);
     const ok = await submitPending(state.id, {
       label: val || undefined,
       imageUrl: pickedImageUrl || undefined,
+      name: name || undefined,
     });
     if (!ok) {
       $('#guest-msg').textContent = '⚠️ Не вдалося надіслати (можливо черга заповнена)';
@@ -837,6 +842,9 @@ function enterGuestMode(): void {
     );
   };
   $('#btn-guest-submit').addEventListener('click', () => void submit());
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.focus();
+  });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') void submit();
   });
@@ -917,6 +925,12 @@ function showModeration(item: PendingEntry, queueLen = 1): void {
     div.textContent = item.label;
     box.appendChild(div);
   }
+  if (item.name) {
+    const who = document.createElement('div');
+    who.className = 'mod-name';
+    who.textContent = `від ${item.name}`;
+    box.appendChild(who);
+  }
   $('#mod-modal').classList.remove('hidden');
 
   // Hide instantly (no awaiting the network), then apply the decision idempotently.
@@ -950,7 +964,9 @@ function renderGuestQueue(pending: PendingEntry[]): void {
     }
     const label = document.createElement('span');
     label.className = 'gq-label';
-    label.textContent = item.label || '🖼 зображення';
+    const variant = item.label || '🖼 зображення';
+    label.textContent = item.name ? `${item.name}: ${variant}` : variant;
+    if (item.name) label.title = `${item.name}: ${variant}`;
     row.appendChild(label);
 
     const add = document.createElement('button');

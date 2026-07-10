@@ -34,7 +34,7 @@ export async function deleteWheel(id: string, editToken?: string): Promise<void>
 /** Guest contribution — submit a text or image to the host's moderation queue. */
 export async function submitPending(
   id: string,
-  payload: { label?: string; imageUrl?: string }
+  payload: { label?: string; imageUrl?: string; name?: string }
 ): Promise<boolean> {
   const res = await fetch(`/api/wheels/${encodeURIComponent(id)}/pending`, {
     method: 'POST',

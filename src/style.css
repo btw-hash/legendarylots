@@ -1139,6 +1139,12 @@ body.readonly #save-pill {
   padding: 4px;
 }
 
+.mod-name {
+  font-size: 14px;
+  color: var(--gold-lo);
+  letter-spacing: 0.03em;
+}
+
 /* ── Tablet (portrait & narrow landscape) ── */
 
 @media (max-width: 1100px) {
