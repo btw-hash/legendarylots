@@ -512,6 +512,19 @@ savePill.addEventListener('click', () => {
     .then(() => toast('Посилання для редагування скопійовано (не показуй глядачам)'));
 });
 
+// Explicit save: the wheel autosaves anyway, but this flushes it now and confirms.
+$('#btn-save').addEventListener('click', async () => {
+  if (readOnly) return;
+  if (state.images.length < 1) {
+    toast('Колесо порожнє — додай варіанти');
+    return;
+  }
+  clearTimeout(saveTimer);
+  await doAutoSave();
+  if (!myWheelsBox.classList.contains('hidden')) renderMyWheels(await loadMyWheels());
+  toast('Збережено ✓');
+});
+
 /* ── My wheels: pick one of this device's saved wheels ── */
 
 const myWheelsBox = $('#my-wheels');
