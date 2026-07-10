@@ -113,6 +113,7 @@ body {
   background: linear-gradient(180deg, var(--wood-700), var(--wood-900));
   color: var(--text);
   cursor: pointer;
+  touch-action: manipulation; /* no 300ms tap delay on touch devices */
   transition:
     transform 0.08s ease,
     filter 0.15s ease,
@@ -1015,6 +1016,90 @@ body.readonly #save-pill {
     transform: translateX(24px);
     opacity: 0;
   }
+}
+
+/* Live guests queue — a scrollable side panel with every pending submission. */
+.guest-panel {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  bottom: 20px;
+  z-index: 85;
+  width: min(320px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--gold-lo);
+  background: linear-gradient(180deg, var(--wood-700), var(--wood-900));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+  animation: mod-slide-in 0.28s cubic-bezier(0.2, 1, 0.4, 1);
+}
+
+.guest-panel.hidden {
+  display: none;
+}
+
+.gp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gp-title {
+  font-family: 'Forum', serif;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+}
+
+.guest-queue {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gq-empty {
+  color: var(--text-dim);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px 8px;
+}
+
+.gq-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--wood-line);
+}
+
+.gq-img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+
+.gq-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gq-item .btn.small {
+  padding: 6px 10px;
+  font-size: 13px;
+  flex: 0 0 auto;
 }
 
 .mod-card {
