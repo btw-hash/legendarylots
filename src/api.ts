@@ -59,26 +59,42 @@ export async function loadWheel(id: string): Promise<WheelData | null> {
   return (await res.json()) as WheelData;
 }
 
-/** Downscale + recompress in the browser, upload, return the hosted URL. */
+/** Downscale + recompress in the browser, upload, return the hosted URL.
+ *  Decodes via <img> (broad format support + applies EXIF orientation) and caps the
+ *  size modestly so the mobile CPU webp-encode + upload stay quick. Falls back to
+ *  JPEG/PNG on browsers whose toBlob can't produce webp. */
 export async function uploadImage(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file);
-  const MAX = 1200;
-  const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
-  const w = Math.round(bitmap.width * scale);
-  const h = Math.round(bitmap.height * scale);
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close();
-  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/webp', 0.85));
-  if (!blob) throw new Error('image encode failed');
-  const res = await fetch('/api/images', {
-    method: 'POST',
-    headers: { 'Content-Type': 'image/webp' },
-    body: blob,
-  });
-  if (!res.ok) throw new Error(`upload failed: ${res.status}`);
-  const { url } = (await res.json()) as { url: string };
-  return url;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  try {
+    img.src = url;
+    await img.decode();
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    if (!iw || !ih) throw new Error('image decode failed');
+
+    const MAX = 900; // a wheel sector never needs more; smaller = faster encode + upload
+    const scale = Math.min(1, MAX / Math.max(iw, ih));
+    const w = Math.max(1, Math.round(iw * scale));
+    const h = Math.max(1, Math.round(ih * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+
+    const encode = (type: string) => new Promise<Blob | null>((r) => canvas.toBlob(r, type, 0.82));
+    const blob =
+      (await encode('image/webp')) || (await encode('image/jpeg')) || (await encode('image/png'));
+    if (!blob) throw new Error('image encode failed');
+
+    const res = await fetch('/api/images', {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type || 'image/jpeg' },
+      body: blob,
+    });
+    if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+    return ((await res.json()) as { url: string }).url;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
