@@ -44,6 +44,9 @@ body {
   flex-direction: column;
   overflow: hidden;
   user-select: none;
+  -webkit-user-select: none; /* Safari/iOS needs the prefix */
+  -webkit-tap-highlight-color: transparent; /* kill the grey tap flash on iOS */
+  -webkit-touch-callout: none; /* no long-press selection/callout */
 }
 
 /* ── Top bar ── */
@@ -656,6 +659,14 @@ body {
 #wheel {
   filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.55));
   cursor: pointer;
+  /* The wheel is tapped/long-pressed a lot — suppress the iOS selection frame,
+     tap flash and callout so it doesn't look "selected". */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  outline: none;
 }
 
 .spin-btn {
