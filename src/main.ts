@@ -62,8 +62,27 @@ function rememberWheel(id: string): void {
   localStorage.setItem('ll-mine', JSON.stringify(ids));
 }
 
-function forgetWheel(id: string): void {
-  localStorage.setItem('ll-mine', JSON.stringify(myWheelIds().filter((x) => x !== id)));
+/* ── Snapshots: "Зберегти" saves a FROZEN copy here. Running/editing the live
+   wheel afterwards never touches these — they're the entries shown in "Мої
+   прокрути". Separate from the live/working record so sync keeps working. ── */
+
+function snapshotIds(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem('ll-snapshots') || '[]') as string[];
+  } catch {
+    return [];
+  }
+}
+
+function rememberSnapshot(id: string): void {
+  localStorage.setItem(
+    'll-snapshots',
+    JSON.stringify([id, ...snapshotIds().filter((x) => x !== id)].slice(0, 60))
+  );
+}
+
+function forgetSnapshot(id: string): void {
+  localStorage.setItem('ll-snapshots', JSON.stringify(snapshotIds().filter((x) => x !== id)));
 }
 
 /* ── Edit tokens: the secret capability to modify a wheel (owner-only) ── */
@@ -512,43 +531,51 @@ savePill.addEventListener('click', () => {
     .then(() => toast('Посилання для редагування скопійовано (не показуй глядачам)'));
 });
 
-// Explicit save: the wheel autosaves anyway, but this flushes it now and confirms.
+// Зберегти = save a FROZEN snapshot into "Мої прокрути". It's a separate record,
+// so spinning/editing/clearing the live wheel afterwards never changes or removes
+// it. (The live wheel keeps autosaving on its own id for cross-device sync.)
 $('#btn-save').addEventListener('click', async () => {
   if (readOnly) return;
   if (state.images.length < 1) {
     toast('Колесо порожнє — додай варіанти');
     return;
   }
-  clearTimeout(saveTimer);
-  await doAutoSave();
-  if (!myWheelsBox.classList.contains('hidden')) renderMyWheels(await loadMyWheels());
-  toast('Збережено ✓');
+  const btn = $('#btn-save') as HTMLButtonElement;
+  btn.disabled = true;
+  try {
+    const snapshot: WheelData = { ...state, id: undefined }; // no id → server mints a fresh one
+    const { id, editToken } = await saveWheel(snapshot, undefined);
+    rememberToken(id, editToken);
+    rememberSnapshot(id);
+    if (!myWheelsBox.classList.contains('hidden')) renderMyWheels(await loadMyWheels());
+    toast('Знімок збережено ✓');
+  } catch {
+    toast('⚠️ Не вдалося зберегти');
+  } finally {
+    btn.disabled = false;
+  }
 });
 
-/* ── My wheels: pick one of this device's saved wheels ── */
+/* ── My wheels: the frozen snapshots saved via Зберегти ── */
 
 const myWheelsBox = $('#my-wheels');
 
-// Load summaries for this device's own wheels by fetching each id (tracked in
-// localStorage). There is intentionally no server-side "list all wheels" endpoint —
-// codes are secrets, so the server must not hand out everyone's.
+// Load summaries for this device's saved snapshots (tracked in localStorage).
+// There is intentionally no server-side "list all wheels" endpoint — codes are
+// secrets, so the server must not hand out everyone's.
 async function loadMyWheels(): Promise<WheelSummary[]> {
-  const ids = myWheelIds();
+  const ids = snapshotIds();
   const loaded = await Promise.all(
     ids.map(async (id) => {
       const d = await loadWheel(id).catch(() => null);
       if (!d) {
-        forgetWheel(id); // gone from the server → drop it from "mine"
+        forgetSnapshot(id); // gone from the server → drop it from the list
         return null;
       }
-      const count = (d.mode === 'image' ? d.images?.length : d.texts?.length) || 0;
+      const count = d.images?.length || 0;
       if (count < 1) return null; // skip empty
-      const label =
-        d.name ||
-        (d.mode === 'image'
-          ? d.images?.[0]?.label || `${count} зображень`
-          : d.texts?.[0] || 'Порожнє');
-      return { id, label, mode: d.mode ?? 'text', count } as WheelSummary;
+      const label = d.name || d.images?.[0]?.label || `${count} варіантів`;
+      return { id, label, mode: 'image', count } as WheelSummary;
     })
   );
   return loaded.filter((w): w is WheelSummary => w !== null);
@@ -586,10 +613,16 @@ function renderMyWheels(wheels: WheelSummary[]): void {
         toast('⚠️ Не вдалося відкрити');
         return;
       }
-      applyLoaded(data);
-      history.replaceState(null, '', `/w/${data.id}`);
+      // Load the snapshot's CONTENT into a fresh live wheel (id cleared) so the
+      // frozen snapshot is never written to. Autosave mints a new live id + link.
+      applyLoaded(data, false);
+      state.id = undefined;
+      savedToServer = false;
+      lastRev = 0;
+      history.replaceState(null, '', '/');
+      markDirty();
       myWheelsBox.classList.add('hidden');
-      toast('Колесо відкрито');
+      toast('Знімок завантажено');
     });
 
     const del = document.createElement('button');
@@ -599,7 +632,7 @@ function renderMyWheels(wheels: WheelSummary[]): void {
     del.addEventListener('click', async (e) => {
       e.stopPropagation();
       await deleteWheel(w.id, tokenFor(w.id));
-      forgetWheel(w.id);
+      forgetSnapshot(w.id);
       renderMyWheels(await loadMyWheels());
     });
 
