@@ -1,5 +1,5 @@
 import express from 'express';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, existsSync } from 'node:fs';
 import { readFile, writeFile, readdir, unlink, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -294,6 +294,59 @@ app.post(
     res.json({ url: `/i/${name}` });
   }
 );
+
+/* ── Provably-fair spin (commit → reveal) ─────────────────────────────────
+   The server commits to a secret seed BEFORE it learns the client's entropy, so it
+   cannot grind an outcome toward any sector; the client adds its seed AFTER the
+   commit, so it cannot pick one either. Anyone can re-verify a spin:
+     sha256(serverSeed) == hash (published before the client seed existed)
+     winner = first 4 bytes of HMAC-SHA256(key=serverSeed, `${clientSeed}:${count}`) mod count
+   (The 2^32 mod count bias is < 5e-8 for count ≤ 200 — irrelevant for a prize wheel.)
+   Commits are wheel-agnostic and single-use; unclaimed ones expire quickly. */
+const spinCommits = new Map<string, { seed: string; at: number }>();
+const SPIN_COMMIT_TTL = 2 * 60_000;
+const SPIN_COMMIT_CAP = 500;
+
+app.post('/api/spin/commit', rateLimit(60, 60_000), (_req, res) => {
+  const now = Date.now();
+  for (const [k, v] of spinCommits) if (now - v.at > SPIN_COMMIT_TTL) spinCommits.delete(k);
+  if (spinCommits.size >= SPIN_COMMIT_CAP) {
+    res.status(429).json({ error: 'too many open commits' });
+    return;
+  }
+  const seed = randomBytes(32).toString('hex');
+  const nonce = randomUUID();
+  spinCommits.set(nonce, { seed, at: now });
+  res.json({ nonce, hash: createHash('sha256').update(seed).digest('hex') });
+});
+
+app.post('/api/spin/reveal', rateLimit(60, 60_000), (req, res) => {
+  const { nonce, clientSeed, count } = (req.body ?? {}) as Record<string, unknown>;
+  const commit = typeof nonce === 'string' ? spinCommits.get(nonce) : undefined;
+  if (!commit) {
+    res.status(404).json({ error: 'unknown or expired nonce' });
+    return;
+  }
+  spinCommits.delete(nonce as string); // single-use, even on a bad payload below
+  const n = Number(count);
+  if (
+    !Number.isInteger(n) ||
+    n < 2 ||
+    n > MAX_ENTRIES ||
+    typeof clientSeed !== 'string' ||
+    !clientSeed ||
+    clientSeed.length > 64
+  ) {
+    res.status(400).json({ error: 'bad reveal payload' });
+    return;
+  }
+  const mac = createHmac('sha256', commit.seed).update(`${clientSeed}:${n}`).digest();
+  const winner = mac.readUInt32BE(0) % n;
+  // Visual landing point inside the winning sector — also seed-derived (bytes 4..7),
+  // kept off the sector edges so float rounding can never flip the outcome.
+  const offsetFrac = 0.15 + (mac.readUInt32BE(4) / 0xffffffff) * 0.7;
+  res.json({ serverSeed: commit.seed, winner, offsetFrac });
+});
 
 app.use('/i', express.static(IMAGES, { immutable: true, maxAge: '365d' }));
 

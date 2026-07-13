@@ -52,6 +52,71 @@ export async function resolvePending(id: string, pid: string, editToken?: string
   });
 }
 
+/** Everything needed to re-verify a provably-fair spin after the fact. */
+export interface FairProof {
+  hash: string; // sha256(serverSeed), committed by the server before it saw clientSeed
+  serverSeed: string;
+  clientSeed: string;
+  count: number;
+  winner: number;
+}
+
+/**
+ * Provably-fair outcome via commit-reveal: the server commits sha256(seed) first,
+ * our entropy goes in second, so neither side can steer the result. Returns null on
+ * any failure (offline, server error, or a hash mismatch = server tried to cheat) —
+ * the caller falls back to a local random spin.
+ */
+export async function requestFairSpin(
+  count: number
+): Promise<{ index: number; frac: number; proof: FairProof } | null> {
+  try {
+    const commitRes = await fetch('/api/spin/commit', { method: 'POST' });
+    if (!commitRes.ok) return null;
+    const commit = (await commitRes.json()) as { nonce: string; hash: string };
+    if (!commit?.nonce || !commit?.hash) return null;
+
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const clientSeed = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+    const revealRes = await fetch('/api/spin/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nonce: commit.nonce, clientSeed, count }),
+    });
+    if (!revealRes.ok) return null;
+    const reveal = (await revealRes.json()) as {
+      serverSeed: string;
+      winner: number;
+      offsetFrac: number;
+    };
+    if (typeof reveal?.winner !== 'number' || typeof reveal?.serverSeed !== 'string') return null;
+
+    // Honesty check: the revealed seed must hash to the pre-commit value.
+    const digest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(reveal.serverSeed)
+    );
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    if (hex !== commit.hash) return null;
+
+    return {
+      index: reveal.winner,
+      frac: typeof reveal.offsetFrac === 'number' ? reveal.offsetFrac : 0.5,
+      proof: {
+        hash: commit.hash,
+        serverSeed: reveal.serverSeed,
+        clientSeed,
+        count,
+        winner: reveal.winner,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function loadWheel(id: string): Promise<WheelData | null> {
   const res = await fetch(`/api/wheels/${encodeURIComponent(id)}`);
   if (res.status === 404) return null;

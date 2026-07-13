@@ -12,8 +12,9 @@ import {
   deleteWheel,
   submitPending,
   resolvePending,
+  requestFairSpin,
 } from './api';
-import type { WheelSummary } from './api';
+import type { WheelSummary, FairProof } from './api';
 import type { PendingEntry } from './types';
 import { winFanfare, toggleMute, isMuted } from './audio';
 import { burstConfetti } from './confetti';
@@ -352,11 +353,17 @@ $('#btn-return-all').addEventListener('click', () => {
 
 /* ── Spin ── */
 
+let lastFair: FairProof | null = null;
+
 async function doSpin(): Promise<void> {
   if (wheel.isSpinning || wheel.count < 2) return;
   hidePreview();
   ($('#btn-spin') as HTMLButtonElement).disabled = true;
-  const idx = await wheel.spin();
+  // Provably-fair outcome from the server (commit → reveal); local random only as
+  // an offline fallback, and the winner modal says so honestly either way.
+  const fair = await requestFairSpin(wheel.count);
+  lastFair = fair?.proof ?? null;
+  const idx = await wheel.spin(fair ? { index: fair.index, frac: fair.frac } : undefined);
   ($('#btn-spin') as HTMLButtonElement).disabled = wheel.count < 2;
   if (idx >= 0) showWinner(idx);
 }
@@ -395,12 +402,60 @@ function showWinner(idx: number): void {
     div.textContent = s.label || '🎉';
     box.appendChild(div);
   }
+  box.appendChild(buildFairBlock(idx));
   $('#winner-modal').classList.remove('hidden');
   // Fanfare + confetti fire after the gavel's final slam (≈0.3s) lands.
   setTimeout(() => {
     winFanfare();
     burstConfetti();
   }, 120);
+}
+
+/**
+ * Fairness note under the winner: an expandable proof for a provably-fair spin, or
+ * an honest "local random" line when the server couldn't be reached. Seeds are
+ * shown in full so a viewer can re-verify the spin with any HMAC-SHA256 tool.
+ */
+function buildFairBlock(idx: number): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'winner-fair';
+  if (!lastFair || lastFair.winner !== idx) {
+    wrap.textContent = '⚠ локальний випадковий спін (сервер недоступний)';
+    return wrap;
+  }
+  const f = lastFair;
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = '✔ чесний спін — перевірити';
+  details.appendChild(summary);
+  const body = document.createElement('div');
+  body.className = 'winner-fair-body';
+  const rows: [string, string][] = [
+    ['commit (sha256 seed)', f.hash],
+    ['server seed', f.serverSeed],
+    ['client seed', f.clientSeed],
+    [
+      'результат',
+      `HMAC-SHA256(server seed, "${f.clientSeed}:${f.count}") → перші 4 байти mod ${f.count} = ${f.winner}`,
+    ],
+  ];
+  for (const [k, v] of rows) {
+    const row = document.createElement('div');
+    const key = document.createElement('span');
+    key.className = 'fair-k';
+    key.textContent = k + ': ';
+    row.appendChild(key);
+    row.appendChild(document.createTextNode(v));
+    body.appendChild(row);
+  }
+  const hint = document.createElement('div');
+  hint.className = 'fair-k';
+  hint.textContent =
+    'Хеш опубліковано ДО того, як клієнт додав свій seed — ні сервер, ні клієнт не могли підлаштувати результат.';
+  body.appendChild(hint);
+  details.appendChild(body);
+  wrap.appendChild(details);
+  return wrap;
 }
 
 function closeWinner(): void {

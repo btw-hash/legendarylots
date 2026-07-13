@@ -109,7 +109,13 @@ export class Wheel {
     return n ? Math.floor((norm(-this.rotation) / TAU) * n) % n : -1;
   }
 
-  spin(): Promise<number> {
+  /**
+   * Spin the wheel. With `target` (provably-fair mode) the wheel lands exactly on
+   * `target.index`, at `target.frac` (0..1) inside that sector — the outcome is
+   * decided by the commit-reveal protocol, only the show is animated here. Without
+   * `target` (offline fallback) the landing angle is plain client randomness.
+   */
+  spin(target?: { index: number; frac: number }): Promise<number> {
     return new Promise((resolve) => {
       if (this.spinning || this.sectors.length < 2) {
         resolve(-1);
@@ -117,7 +123,13 @@ export class Wheel {
       }
       this.spinning = true;
       const from = this.rotation;
-      const delta = TAU * (5 + Math.random() * 3) + Math.random() * TAU;
+      // pointerIndex(i) ⇔ norm(-rotation) ∈ [i/n, (i+1)/n)·TAU, so landing on
+      // sector i at fraction f means finalRotation = norm(-((i + f) / n) · TAU).
+      // Full turns must stay whole numbers or they would shift the landing.
+      const delta = target
+        ? TAU * (5 + Math.floor(Math.random() * 3)) +
+          norm(-((target.index + target.frac) / this.sectors.length) * TAU - from)
+        : TAU * (5 + Math.random() * 3) + Math.random() * TAU;
       const dur = 4600 + Math.random() * 1800;
       const t0 = performance.now();
       this.lastIdx = this.pointerIndex();
