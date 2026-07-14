@@ -276,7 +276,10 @@ function sniffImage(buf: Buffer): string | null {
 
 app.post(
   '/api/images',
-  rateLimit(40, 60_000),
+  // A full wheel is up to MAX_ENTRIES participants; a batch photo upload fires them
+  // all at once, so the throttle must clear a whole wheel (+headroom for retries),
+  // not choke at 40. sha-dedupe + the 8mb/file cap still bound disk abuse.
+  rateLimit(250, 60_000),
   express.raw({ type: 'image/*', limit: '8mb' }),
   async (req, res) => {
     if (!(req.body instanceof Buffer) || req.body.length === 0) {
